@@ -1,6 +1,6 @@
 {
   "name": "xpapi",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A simple but powerful API framework that gets back to a sane RPC model.",
   "main": "xpapi.js",
   "scripts": {

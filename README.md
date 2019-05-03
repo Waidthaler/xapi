@@ -1,4 +1,4 @@
-# xpapi - Sane Web APIs v0.0.2
+# xpapi - Sane Web APIs v1.0.2
 
 The xpapi module presents an easy-to-use, simple, and powerful micro-framework 
 for building web APIs on top of Restify. It is purely for APIs and has no UI

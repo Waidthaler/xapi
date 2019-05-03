@@ -23,12 +23,12 @@ class xpapi {
         this._cookies   = require("restify-cookies");
         this._os        = require("os");
 
-        this._version   = "1.0.1";
+        this._version   = "1.0.2";
 
         this._server    = null;
         this._handlers  = { };
 
-        this.genval     = genval; console.log(this.genval);
+        this.genval     = genval;
 
         this._config    = {
             apiPath:       "/api",
