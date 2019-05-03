@@ -1,0 +1,1100 @@
+//##############################################################################
+// A simple but capable web API-only framework.
+//##############################################################################
+
+
+//==============================================================================
+// The xapi class is where most of the action happens.
+//==============================================================================
+
+class xapi {
+
+    constructor(options) {
+
+        // Set up required modules ---------------------------------------------
+
+        this._ac        = require("ansi-colors");
+        this._fs        = require("fs");
+        this._monocle   = require("monocle")();
+        this._process   = require("process");
+        this._restify   = require("restify");
+        this._errors    = require("restify-errors");
+        this._cors      = require("restify-cors-middleware");
+        this._cookies   = require("restify-cookies");
+        this._os        = require("os");
+
+        this._version   = "1.0.1";
+
+        this._server    = null;
+        this._handlers  = { };
+
+        this.genval     = genval; console.log(this.genval);
+
+        this._config    = {
+            apiPath:       "/api",
+            apiPort:       8080,
+            autoload:      true,         // load from handlers automatically
+            autoreload:    true,         // reload handlers when changed
+            corsOrigins:   false,
+            cssUrl:        false,
+            dependencies:  false,        // specifies config file mapping sets of dependencies to commands
+            genDocsPath:   false,
+            handlerDir:    "./handlers",
+            handlerFiles:  [ ],
+            logger:        null,
+            maxBodySize:   2 * 1024 * 1024,
+            name:          "Unnamed",
+            pluginDir:     "./plugins",
+            pluginFiles:   [ ],
+            production:    false,
+            sessionName:   "xapiSession",
+            uploadDir:     this._os.tmpdir(),
+            verbosity:     1,     // 0 = quiet, 1 = warnings, 2 = info, 3 = debug
+        };
+
+        // Apply configuration -------------------------------------------------
+
+        if(options !== undefined) {
+            for(var k in options) {
+                if(this._config[k] !== undefined) {
+                    this._config[k] = options[k];
+                }
+            }
+        }
+
+        if(this._config.verbosity > 0)
+            this.outputHeader();
+
+        // Import dependencies for injection if specified ----------------------
+
+        if(this._config.dependencies) {
+            this._config.dependencies = require(this._config.dependencies);
+        }
+
+        // Prepare handlers and plugins ----------------------------------------
+
+        this._loadHandlers();
+        this._initHandlers();
+
+        // Initialize restify --------------------------------------------------
+
+        try {
+            this._server = this._restify.createServer({
+                strictFormatters: false
+            });
+
+            if(this._config.corsOrigins) {
+                var corsObj = this._cors({ origins: this._config.corsOrigins });
+                this._server.pre(corsObj.preflight);
+                this._server.use(corsObj.actual);
+            }
+
+            this._loadPlugins();
+
+            this._server.use(this._cookies.parse);
+            this._server.use(this._restify.plugins.gzipResponse());
+
+            this._server.use(this._restify.plugins.bodyParser({
+                maxBodySize:      this._config.maxBodySize,
+                mapParams:        true,
+                mapFiles:         true,
+                overrideParams:   true,
+                uploadDir:        this._config.uploadDir,
+                keepExtensions:   false,
+                multiples:        true,
+                hash:             'sha1',
+                rejectUnknown:    true,
+                requestBodyOnGet: false,
+                maxFieldsSize:    this._config.maxBodySize
+            }));
+
+            this._server.use(_uploadHandler());
+
+            this._server.listen(this._config.apiPort);
+
+            var modHandler = this._dispatcher.bind(this);
+            this._server.post(this._config.apiPath, modHandler);
+
+            if(this._config.genDocsPath) {
+                var docsHandler = this._documentation.bind(this);
+                this._server.get(this._config.genDocsPath, docsHandler);
+            }
+        } catch(e) {
+            this.error("fatal", "Unable to initialize Restify.", "xapi.constructor");
+        }
+
+        // Set up handler dir watcher if configured ----------------------------
+
+        if(this._config.autoload) {
+            var listener = this._loadChangedHandler.bind(this);
+
+            this._monocle.watchDirectory({
+                root: this._config.handlerDir,
+                listener: listener,
+                complete: function() { console.log("Handler autoloading enabled."); }
+            });
+        }
+
+        this.error("info", "Server has been initialized and is listening to "
+            + this._config.apiPath + " on port " + this._config.apiPort + ".",
+            "xapi.constructor");
+
+    }
+
+
+    //--------------------------------------------------------------------------
+    // The dispatcher method is what takes inbound requests, figures out which
+    // handlers should deal with them, and shovels data into and out of them.
+    //--------------------------------------------------------------------------
+
+    _dispatcher(req, res, next) {
+
+        // TODO: handle sessions
+
+        // Check for the xapi request ------------------------------------------
+
+        if(req.params === undefined)
+            return this._fling(res, next, 406, "Missing req.params object");
+
+        // Verify required elements and set parameters, if any -----------------
+
+        if(req.params === undefined || typeof req.params != "object"
+            || req.params.cmds === undefined || !Array.isArray(req.params.cmds))
+            return this._fling(res, next, 406, "Malformed xapi object");
+
+
+        var xreq = req.params;
+
+        //----------------------------------------------------------------------
+        // The bulk of the work happens here. We loop through xreq.commands and
+        // verify that the commands exist, then we validate their arguments. It
+        // is important to note that this happens before command execution, and
+        // any error results in the rejection of the whole batch.
+        //----------------------------------------------------------------------
+
+        for(var c = 0; c < xreq.cmds.length; c++) {
+
+            // Make sure the element has a cmd member --------------------------
+
+            if(xreq.cmds[c].cmd === undefined)
+                return this._fling(res, next, 406, "Missing cmd array");
+
+            var cmd = xreq.cmds[c];
+
+            // Make sure the cmd exists ----------------------------------------
+
+            if(this._handlers[cmd.cmd] === undefined) {
+                return this._fling(res, next, 406, "Undefined cmd");
+            }
+
+            var def = this._handlers[cmd.cmd];
+
+            // Check for presence of args if required --------------------------
+
+            if(cmd.args === undefined && def.args !== null)
+                return this._fling(res, next, 406, "Missing args");
+
+            // Now validate the args, if any -----------------------------------
+
+            for(var arg in def.args) {
+                if(def.args[arg] === undefined)
+                    return this._fling(res, next, 406, "Unrecognized arg");
+                if(def.args[arg].required && cmd.args[arg] === undefined)
+                    return this._fling(res, next, 406, "Missing required cmd arg");
+                var failed = this._validateCommandArgs(cmd, def);
+                if(failed) {
+                    return this._fling(res, next, 406, "Invalid arg: " + def.args[arg].errmsg);
+                }
+            }
+
+        }
+
+        // Finally, execute the commands and return the result -----------------
+
+        var response = {
+            cmdCnt:  xreq.cmds.length,
+            worked:  0,
+            failed:  0,
+            aborted: xreq.cmds.length,
+            results: [ ]
+        };
+
+        for(var c = 0; c < xreq.cmds.length; c++) {
+            var cmd = xreq.cmds[c];
+            var def = this._handlers[cmd.cmd];
+
+            if(xreq.params && xreq.params.benchmark) {
+                var startFunc = new Date();
+            }
+
+            if(this._config.dependencies && this._config.dependencies[cmd.cmd]) {
+                var result = def.func(req, xreq.cmds[c].args, this._config.dependencies[cmd.cmd]);
+            } else {
+                var result = def.func(req, xreq.cmds[c].args);
+            }
+
+            if(xreq.params && xreq.params.benchmark) {
+                var endFunc = new Date();
+                result.execTime = endFunc.getTime() - startFunc.getTime();
+            }
+
+            if(xreq.cmds[c].id !== undefined)
+                result.id = xreq.cmds[c].id;
+            response.aborted--;
+            if(result.errcode !== undefined || result.errmsg != undefined) {
+                response.failed++;
+                if(xreq.params && !xreq.params.ignoreErrors)
+                    break;
+            } else {
+                response.worked++;
+                if(result.cookies) {
+                    for(var ck = 0; ck < result.cookies.length; ck++) {
+                        res.setHeader("Set-Cookie", result.cookies[ck]);
+                    }
+                    delete result.cookies;
+                }
+            }
+            response.results.push(result);
+        }
+
+        res.send(response);
+
+        next();
+    }
+
+    //--------------------------------------------------------------------------
+    // Command argument validation loop.
+    //--------------------------------------------------------------------------
+
+    _validateCommandArgs(cmd, def) {
+        for(var arg in cmd.args) {
+            if(def.args[arg].valid === undefined || def.args[arg].valid === null)
+                return false;
+            try {
+                cmd.args[arg] = this._validate(cmd.args[arg], def.args[arg].valid);
+            } catch(e) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    //--------------------------------------------------------------------------
+    // Generic error flinger.
+    //--------------------------------------------------------------------------
+
+    _fling(res, next, num, msg) {
+        res.statusCode = num;
+        res.end(msg);
+        return next();
+    }
+
+    //--------------------------------------------------------------------------
+    // Initializes the handlers.
+    //--------------------------------------------------------------------------
+
+    _initHandlers() {
+        if(this._handlers.length == 0)
+            this.error("fatal", "No handlers were exported by handler files.", "xapi._initHandlers");
+
+        for(var i = 0; i < this._handlers.length; i++) {
+            this._initHandler(this._handlers[i]);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Initializes a handler. Broken out from _initHandlers, plural, to reuse
+    // with autoreload feature.
+    //--------------------------------------------------------------------------
+
+    _initHandler(handler, force = false) {
+            var h = handler;
+            if(h.name === undefined || !this.genval.isNonEmptyString(h.name))
+                this.error("fatal", "Missing or invalid name in handler.", "xapi._initHandlers");
+            if(this._handlers[h.name] !== undefined && !force)
+                this.error("fatal", "Duplicate name \"" + h.name + "\" in handler.", "xapi._initHandlers");
+            if(h.args === undefined && h.args !== null)
+                this.error("fatal", "Missing args in handler\"" + h.name + "\".", "xapi._initHandlers");
+            var argCnt = 0;
+            for(var k in h.args) {
+                argCnt++;
+            }
+            if(argCnt == 0) {
+                this.error("warn", "Empty args in handler \"" + h.name + "\", converted to null.", "xapi._initHandlers");
+                h.args = null;
+            }
+            if(h.func === undefined || typeof h.func != "function")
+                this.error("fatal", "Missing or invalid function in handler \"" + h.name + "\".", "xapi._initHandlers");
+            if(h.desc === undefined || !this.genval.isNonEmptyString(h.desc))
+                this.error("warn", "Missing or invalid desc in handler \"" + h.name + "\".", "xapi._initHandlers");
+
+            h.init = true;
+
+            if(h.args !== null)
+                this._validateHandlerArgs(h.name, h.args);
+    }
+
+    //--------------------------------------------------------------------------
+    // Validates a handler args element. Returns nothing, but terminates the
+    // program if an error is found.
+    //--------------------------------------------------------------------------
+
+    _validateHandlerArgs(handlerName, args) {
+
+        for(var name in args) {
+            var arg = args[name];
+
+            if(arg.valid === undefined)
+                this.error("fatal", "Missing valid attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xapi._validateHandlerArgs");
+
+            // TODO: validate validators. No, seriously.
+
+            if(arg.required === undefined)
+                this.error("fatal", "Missing required attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xapi._validateHandlerArgs");
+
+            if(arg.errmsg === undefined)
+                this.error("fatal", "Missing errmsg attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xapi._validateHandlerArgs");
+
+            if(arg.desc === undefined)
+                this.error("warn", "Missing desc attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xapi._validateHandlerArgs");
+
+        }
+
+    }
+
+    //--------------------------------------------------------------------------
+    // (Re)loads a changed handler file.
+    //--------------------------------------------------------------------------
+
+    _loadChangedHandler(file) {
+        this._loadHandler(file.fullPath);
+        for(var k in this._handlers) {
+            if(!this._handlers[k].init) {
+                this._initHandler(this._handlers[k], true);
+                this.error("info", "Reloaded handler file \"" + file + "\" after change.", "xapi._loadChangedHandler");
+            }
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Loads a handler file.
+    //--------------------------------------------------------------------------
+
+    _loadHandler(filename) {
+        try {
+            delete require.cache[filename];
+            var handlers = require(filename);
+            this.error("debug", "Loaded \"" + filename + "\".", "xapi._loadHandler");
+            if(!Array.isArray(handlers)) {
+                handlers = [handlers];
+            }
+
+            for(var h = 0; h < handlers.length; h++) {
+                if(this._handlers[handlers[h].name] === undefined) {
+                    this.error("debug", "Loaded handler " + handlers[h].name + " from " + filename + ".", "xapi._loadHandler");
+                } else {
+                    this.error("debug", "Reloaded handler " + handlers[h].name + " from " + filename + ".", "xapi._loadHandler");
+                }
+                handlers[h].init = false;
+                this._handlers[handlers[h].name] = handlers[h];
+            }
+
+        } catch(e) { console.log(e);
+            this.error("fatal", "Unable to require \"" + filename + "\".", "xapi._loadHandler");
+        }
+
+    }
+
+    //--------------------------------------------------------------------------
+    // Loads the handlers. If autoload is enabled, it loads all of the files in
+    // the handler directory into this._config.handlerFiles. Otherwise, it
+    // loads whichever files were explicitly placed in handlerFiles at init.
+    //--------------------------------------------------------------------------
+
+    _loadHandlers() {
+
+        if(this._config.autoload) {
+            try {
+                var items = this._fs.readdirSync(this._config.handlerDir, { withFileTypes: true });
+                this.error("debug", "Found " + items.length + " items in " + this._config.handlerDir + ".", "xapi._loadHandlers");
+
+                for(var i = 0; i < items.length; i++) {
+                    if(items[i].isFile()) {
+                        this._loadHandler(this._config.handlerDir + "/" + items[i].name);
+                    }
+                }
+
+            } catch(e) {console.log(e);
+                this.error("fatal", "Unable to open handler directory \""
+                    + this._fs.realpathSync(this._config.handlerDir) + "\".", "xapi._loadHandlers");
+            }
+
+        } else {
+
+            this._config.handlerFiles = this._uniq(this._config.handlerFiles);
+
+            for(var i = 0; i < this._config.handlerFiles.length; i++) {
+                try {
+                    this._loadHandler(this._config.handlerFiles[i]);
+                } catch(e) {
+                    this.error("fatal", "Unable to require \"" + this._config.handlerFiles[i] + "\".",
+                        "xapi._loadHandlers");
+                }
+            }
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Utility function to return a copy of an array sorted and with duplicates
+    // removed.
+    //--------------------------------------------------------------------------
+
+    _uniq(a) {
+        if(a.length) {
+            var obj = { };
+            for(var i = 0; i < a.length; i++)
+                obj[this._config.handlerFiles[i]] = true;
+            this._config.handlerFiles = [ ];
+            for(var k in obj)
+                a.push(k);
+        }
+        return a;
+    }
+
+    //--------------------------------------------------------------------------
+    // Loads the plugins. If autoload is enabled, it attempts to require
+    // everything in the plugins directory. Otherwise, it walks through whatever
+    // files were loaded into pluginFiles via options passed to the constructor.
+    //--------------------------------------------------------------------------
+
+    _loadPlugins() {
+
+        if(this._config.autoload) {
+            try {
+                var items = this._fs.readdirSync(this._config.pluginDir, { withFileTypes: true });
+                this.error("debug", "Found " + items.length + " items in "
+                    + this._config.pluginDir + ".", "xapi.constructor");
+
+                for(var i = 0; i < items.length; i++) {
+                    if(items[i].isFile()) {
+                        this._config.pluginFiles.push(this._config.pluginDir + "/" + items[i].name);
+                        this.error("debug", "Found plugin file \""
+                            + this._config.pluginFiles[this._config.pluginFiles.length - 1]
+                            + "\".", "xapi.constructor");
+                    }
+                }
+                this.error("debug", "Found " + this._config.pluginFiles.length
+                    + " plugin files.", "xapi.constructor");
+
+            } catch(e) {
+                this.error("fatal", "Unable to open plugin directory \""
+                    + this._config.pluginDir + "\".", "xapi.constructor");
+            }
+        }
+
+        for(var i = 0; i < this._config.pluginFiles.length; i++) {
+
+            try {
+
+                var plugins = require(this._config.pluginFiles[i]);
+                this.error("debug", "Loaded \"" + this._config.pluginFiles[i] + "\".",
+                    "xapi.constructor");
+
+                if(plugins.pre)
+                    this._server.pre(plugins.pre);
+
+                if(plugins.use)
+                    this._server.use(plugins.use);
+
+            } catch(e) {
+
+                this.error("fatal", "Unable to require \"" + this._config.pluginFiles[i] + "\".",
+                    "xapi.constructor");
+            }
+
+        }
+
+    }
+
+    //--------------------------------------------------------------------------
+    // Given a value and a set of tests, applies the tests and returns the
+    // (possibly altered) value on success. Throws an error on failure. Not all
+    // of these are really tests; a number of them perform some kind of data
+    // manipulation such as trimming whitespace. Accordingly, they are performed
+    // in the order specified.
+    //--------------------------------------------------------------------------
+
+    _validate(val, tests) {
+
+        for(var i = 0; i < tests.length; i++) {
+
+            switch(tests[i][0]) {
+
+                //--------------------------------------------------------------
+                // ["isArray", ?min, ?max]
+
+                case "isArray":
+                    if(!Array.isArray(val)
+                        || (tests[i][1] !== undefined && val.length < tests[i][1])
+                        || (tests[i][2] !== undefined && val.length < tests[i][2])) {
+                        this.error("info", "Failed isArray test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+                // ["isArrayOfInts", ?min, ?max]
+
+                case "isArrayOfIntegers":
+                case "isArrayOfInts":
+                    if(!this.genval.isArrayOfInts(val, tests[i][1], tests[i][2])) {
+                        this.error("info", "Failed " + test[i][0] + " test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+                // ["isArrayOfFloats", ?min, ?max]
+
+                case "isArrayOfFloats":
+                    if(!this.genval.isArrayOfFloats(val, tests[i][1], tests[i][2])) {
+                        this.error("info", "Failed " + test[i][0] + " test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+                // ["isArrayOfNonEmptyStrings", ?min, ?max]
+
+                case "isArrayOfNonEmptyStrings":
+                    if(!this.genval.isArrayOfNonEmptyStrings(val, tests[i][1], tests[i][2])) {
+                        this.error("info", "Failed " + test[i][0] + " test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+                // ["isArrayOfStrings", ?min, ?max]
+
+                case "isArrayOfStrings":
+                    if(!this.genval.isArrayOfStrings(val, tests[i][1], tests[i][2])) {
+                        this.error("info", "Failed " + test[i][0] + " test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+                // ["isBetween", min, max]
+
+                case "isBetween":
+                    if(!this.genval.isBetween(val, tests[i][1], tests[i][2])) {
+                        this.error("info", "Failed isWithin test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+
+                case "isBoolean":
+                    if(!this.genval.isBoolean(val)) {
+                        this.error("info", "Failed isBoolean test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+
+                case "isChar":
+                    if(!this.genval.isChar(val)) {
+                        this.error("info", "Failed isChar test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+
+                case "isInt":
+                case "isInteger":
+                    val = parseInt(val);
+                    if(isNaN(val) || !this.genval.isInteger(val)) {
+                        this.error("info", "Failed isInt test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+
+                case "isInArray":
+                    if(!this.genval.isInArray(val, tests[i][1])) {
+                        this.error("info", "Failed isInArray test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+
+                    break;
+
+                //--------------------------------------------------------------
+
+                case "isFloat":
+                    val = parseFloat(val);
+                    if(isNaN(val) || !this.genval.isFloat(val)) {
+                        this.error("info", "Failed isFloat test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+
+                case "isNonEmptyString":
+                    if(!this.genval.isNonEmptyString(val)) {
+                        this.error("info", "Failed isNonEmptyString test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+
+                case "isNull":
+                    if(!this.genval.isNull(val)) {
+                        this.error("info", "Failed isNull test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+                // ["isString", ?min, ?max]
+
+                case "isString":
+                    if(!this.genval.isString(val)
+                        || (tests[i][1] !== undefined && val.length < tests[i][1])
+                        || (tests[i][2] !== undefined && val.length < tests[i][2])) {
+                        this.error("info", "Failed isString test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+                // ["isWithin", min, max]
+
+                case "isWithin":
+                    if(!this.genval.isWithin(val, tests[i][1], tests[i][2])) {
+                        this.error("info", "Failed isWithin test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+                // For a number, if the value is outside of the min/max range,
+                // it is replaced with the nearer value.
+                //
+                // ["clamp", min, max]
+
+                case "clamp":
+                    if(val < tests[i][1])
+                        val = tests[i][1];
+                    else if(val > tests[i][2])
+                        val = tests[i][2];
+                    break;
+
+                //--------------------------------------------------------------
+                // Attempts to convert val into a number.
+
+                case "toNumber":
+                    val = parseFloat(val);
+                    if(isNaN(val)) {
+                        this.error("info", "Cannot convert val to a number.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
+                // Trims leading and trailing whitespace from a string.
+
+                case "trim":
+                    try {
+                        val = val.trim();
+                    } catch(e) {
+                        throw new Error("warn", "Invalid type passed to trim test.", "xapi._validate");
+                    }
+                    break;
+
+                default:
+                    this.error("warn", "Undefined test \"" + tests[i][0] + "\".", "xapi._validate");
+                    throw new Error("Validation failed with unknown test.");
+                    break;
+            }
+
+        }
+
+        return val;
+
+    }
+
+    //--------------------------------------------------------------------------
+    // Outputs the runtime header to console. This will become progressively
+    // more ostentatious and ridiculous as time goes by.
+    //--------------------------------------------------------------------------
+
+    outputHeader() {
+
+        console.log(
+            "\n" + this._ac.blue("===========================================================================") + "\n"
+            + this._ac.yellow.bold("                      xapi v" + this._version + " -- Sane Web APIs") + "\n"
+            + this._ac.blue("===========================================================================") + "\n"
+        );
+
+    }
+
+
+
+    //--------------------------------------------------------------------------
+    // If a logger has been defined, log messages will be passed to it here;
+    // otherwise it defaults to console.log().
+    //--------------------------------------------------------------------------
+
+    log(msg) {
+        if(this._config.logger)
+            this._config.logger(msg);
+    }
+
+
+    //--------------------------------------------------------------------------
+    // Prints an error message to console if permitted by the current verbosity
+    // level, and if the error is fatal, terminates the process.
+    //--------------------------------------------------------------------------
+
+    error(level, message, location = "xapi", obj = null) {
+
+        switch(level) {
+            case "fatal":
+                console.log(this._ac.bgRed.yellowBright("[" + location + "]") + this._ac.redBright(" FATAL ERROR: ") + this._ac.yellowBright(message ));
+                this.log("[" + location + "] FATAL ERROR: " + message  + "\n");
+                break;
+            case "warn":
+                if(this._config.verbosity >= 1) {
+                    console.log(this._ac.bgYellow.whiteBright("[" + location + "]") + this._ac.yellowBright(" WARNING: ") + message );
+                    this.log("[" + location + "] WARNING: " + message  + "\n");
+                }
+                break;
+            case "info":
+                if(this._config.verbosity >= 2) {
+                    console.log(this._ac.bgGreen.whiteBright("[" + location + "]") + this._ac.greenBright(" INFO: ") + message );
+                    this.log("[" + location + "] INFO: " + message  + "\n");
+                }
+                break;
+            case "debug":
+                if(this._config.verbosity >= 3 || this.settings.debug) {
+                    console.log("[" + location + "] DEBUG: " + message );
+                    this.log("[" + location + "] DEBUG: " + message  + "\n");
+                }
+                break;
+        }
+
+
+        if(level == "fatal")
+            this._process.exit(1);
+    }
+
+
+    //--------------------------------------------------------------------------
+    // Documentation generator.
+    //--------------------------------------------------------------------------
+
+    _documentation(req, res, next) {
+        var docs = [];
+
+        docs.push(
+            "<html lang='en'>\n"
+            + "<head>\n"
+            + "<meta charset='utf-8'>\n"
+            + "<title>" + this._config.name + " Documentation</title>"
+        );
+        if(this._config.cssUrl) {
+            docs.push("<link rel='stylesheet' href='" + this._config.cssUrl + "'>");
+        } else {
+            docs.push(
+                "<style type='text/css'>\n"
+                + "body,table { font: 10pt Arial,Helvetica,sans-serif; }\n"
+                + "a { text-decoration: none; }\n"
+                + "a:hover { text-decoration: underline; }\n"
+                + "span.code { background-color: #EEE; font: 10pt Consolas,Courier,fixed; }\n"
+                + "h1 { background-color: black; color: white; text-align: center; padding: 0.5em; }\n"
+                + "h2 { margin-top: 2em; border: 2px solid black; padding: 0.25em; }\n"
+                + "h3.method-name { padding-top: 1em; border-bottom: 1px solid black; margin-bottom: 2px; font-family: Consolas,Courier,fixed; font-size: 120%; }\n"
+                + "h3.method-name + p { margin-top: 2px; }\n"
+                + "table.method-args { border-spacing: 1px; background-color: black; }\n"
+                + "table.method-args thead { color: white; }\n"
+                + "table.method-args tbody { background-color: white; }\n"
+                + "table.method-args td:nth-child(1) { font: bold 10pt Consolas,Courier,fixed; }\n"
+                + "</style>"
+            );
+        }
+        docs.push(
+            "</head>\n"
+            + "<body>\n"
+            + "<h1>" + this._config.name + " API Documentation</h1>\n"
+            + "<h2>Table of Contents</h2>\n"
+            + "<ul>"
+        );
+
+        var methodNames = [ ];
+        for(var name in this._handlers)
+            methodNames.push(name)
+        methodNames.sort();
+
+        for(var i = 0; i < methodNames.length; i++)
+            docs.push("<li><a href='#" + methodNames[i] + "'>" + methodNames[i] + "</a></li>");
+
+        docs.push(
+            "</ul>\n"
+            + "<h2>Endpoint Descriptions</h2>"
+        );
+
+        for(var m = 0; m < methodNames.length; m++) {
+            var method = this._handlers[this._handlers[methodNames[m]]];
+
+            docs.push("<a name='" + method.name + "'></a>");
+            docs.push("<h3 class='method-name'>" + method.name + "</h3>");
+            docs.push("<p class='method-desc'>" + method.desc + "</p>");
+
+            var argnames = [ ];
+            for(var argname in method.args)
+                argnames.push(argname);
+
+            if(argnames.length) {
+                argnames.sort();
+                docs.push(
+                    "<table class='method-args'>\n"
+                    + "<thead>\n"
+                    + "<tr><th>Argument</th><th>Req</th><th>Description</th></tr></thead>\n"
+                    + "<tbody>"
+                );
+                for(var a = 0; a < argnames.length; a++) {
+                    var arg = method.args[argnames[a]];
+                    docs.push(
+                        "<tr><td>" + argnames[a] + "</td>\n"
+                        + "<td>" + (arg.req ? "Y" : "N") + "</td>\n"
+                        + "<td>" + arg.desc + "</td></tr>"
+                    );
+                }
+                docs.push("</tbody></table>");
+            } else {
+                docs.push("<p><em>This function has no arguments.</em></p>");
+            }
+
+        }
+
+        docs.push(
+            "</body>\n"
+            + "</html>\n"
+        );
+
+        res.setHeader("content-type", "text/html");
+        res.setHeader("Set-Cookie", "xapiDocs=true; HttpOnly;");
+        res.end(docs.join("\n"));
+        return next();
+
+    }
+
+}
+
+//--------------------------------------------------------------------------
+// If a file is uploaded, we search for an xapi command with an argument
+// whose name matches the fieldname with a prepended '@'. (There can be
+// more than one, incidentally.) It then copies an object with information
+// about the file to that argument, minus the '@', and deletes the placeholder.
+// The object looks like this:
+//
+// { size: 603, path: "/path/to/file", name: "foo.txt", type: "text/plain" }
+//--------------------------------------------------------------------------
+
+function _uploadHandler(options) {
+
+    function handler(req, res, next) {
+
+        var xreq = null;
+        try {
+            xreq = JSON.parse(req.body.xapi);
+        } catch(e) {
+            // TODO: need some kind of error notification
+            return next();
+        }
+        if(xreq === null)
+            return next();
+
+        for(var c = 0; c < xreq.cmds.length; c++) {
+            for(var a in xreq.cmds[c].args) {
+                if(a.substr(0, 1) == "@" && req.files[a.substr(1)] !== undefined) {
+                    var field = a.substr(1);
+                    xreq.cmds[c].args[field] = {
+                        size: req.files[field].size,
+                        path: req.files[field].path,
+                        name: req.files[field].name,
+                        type: req.files[field].type,
+                    };
+                    delete xreq.cmds[c].args[a];
+                }
+            }
+        }
+
+        req.body.xapi = JSON.stringify(xreq);
+        return next();
+    }
+
+    return handler;
+}
+
+
+//--------------------------------------------------------------------------
+// Generic validation functions.
+//--------------------------------------------------------------------------
+
+var genval = {
+
+    //--------------------------------------------------------------------------
+
+    isArray: function(val, min, max) {
+        if(!Array.isArray(val))
+            return false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isArrayOfInts: function(val, min, max) {
+        if(!Array.isArray(val))
+            return false;
+        if((min !== undefined && val.length < min)
+            || (max !== undefined && val.length > max))
+            return false;
+        for(var i = 0; i < val.length; i++)
+            val[i] = parseInt(val[i]);
+            if(isNaN(val[i]) || typeof val[i] != "number" || val[i] != Math.floor(val[i]))
+                return false;
+        return true;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isArrayOfFloats: function(val, min, max) {
+        if(!Array.isArray(val))
+            return false;
+        if((min !== undefined && val.length < min)
+            || (max !== undefined && val.length > max))
+            return false;
+        for(var i = 0; i < val.length; i++) {
+            val[i] = parseFloat(val);
+            if(isNaN(val[i]) || typeof val[i] != "number")
+                return false;
+        }
+        return true;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isArrayOfNonEmptyStrings: function(val, min, max) {
+        if(!Array.isArray(val))
+            return false;
+        if((min !== undefined && val.length < min)
+            || (max !== undefined && val.length > max))
+            return false;
+        for(var i = 0; i < val.length; i++)
+            if(typeof val[i] != "string" || val[i].length < 1)
+                return false;
+        return true;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isArrayOfStrings: function(val, min, max) {
+        if(!Array.isArray(val))
+            return false;
+        if((min !== undefined && val.length < min)
+            || (max !== undefined && val.length > max))
+            return false;
+        for(var i = 0; i < val.length; i++)
+            if(typeof val[i] != "string")
+                return false;
+        return true;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isBetween: function(val, min, max) {
+        return val > min && val < max ? true : false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isBoolean: function(val) {
+        return typeof val == "boolean" ? true : false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isChar: function(val) {
+        return typeof val == "string" && val.length == 1 ? true : false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isFloat: function(val) {
+        val = parseFloat(val);
+        return (!isNan(val) && typeof val == "number") ? true : false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isInArray: function(val, array) {
+        for(var i = 0; i < array.length; i++)
+            if(array[i] == val)
+                return true;
+        return false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isInteger: function(val) {
+        val = parseInt(val);
+        return (!isNaN(val) && typeof val == "number") && val == Math.floor(val) ? true : false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isKey: function(val, object) {
+        return object[val] === undefined ? false : true;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isNonEmptyString: function(val) {
+        return typeof val == "string" && val.length ? true : false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isNull: function(val) {
+        return val === null ? true : false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isNullOrFunction: function(val) {
+        return (val === null || typeof val == "function") ? true : false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isString: function(val) {
+        return typeof val == "string" ? true : false;
+    },
+
+    //--------------------------------------------------------------------------
+
+    isWithin: function(val, min, max) {
+        return val >= min && val <= max ? true : false;
+    },
+
+};
+
+
+
+module.exports = xapi;

@@ -1,0 +1,31 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><head><title>Test</title>
+<script>
+
+var req = {
+	params: { 
+		benchmark: true,
+	},
+    cmds: [
+		{ cmd: "yoMama", args: { echo: "Your mother", "@testUpload": null }, id: "charlie" },
+		{ cmd: "sumOfNumbers", args: { addends: [ 5, 10, 15 ] }, id: "phred" },
+		{ cmd: "multiArgTest", args: { godzilla: true, name: "Lizzie", someInt: 5 }, id: "KingOfMonsters" }
+	]
+};
+
+
+</script>
+</head>
+<body>
+
+<p>
+<script>document.write(JSON.stringify(req))</script>
+</p>
+
+<form method="POST" action="http://localhost:8080/api" ENCTYPE="multipart/form-data">
+<input type='hidden' name='xapi' value='{"params":{"benchmark":true},"cmds":[{"cmd":"yoMama","args":{"echo":"Your mother","@testUpload":null},"id":"charlie"},{"cmd":"sumOfNumbers","args":{"addends":[5,10,15]},"id":"phred"},{"cmd":"multiArgTest","args":{"godzilla":true,"name":"Lizzie","someInt":5},"id":"KingOfMonsters"}]}' />
+<input type="file" name="testUpload"/><br/><br/>
+<input type="submit" />
+</form>
+
+</body>
+</html>
