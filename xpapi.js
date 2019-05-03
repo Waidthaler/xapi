@@ -4,10 +4,10 @@
 
 
 //==============================================================================
-// The xapi class is where most of the action happens.
+// The xpapi class is where most of the action happens.
 //==============================================================================
 
-class xapi {
+class xpapi {
 
     constructor(options) {
 
@@ -47,7 +47,7 @@ class xapi {
             pluginDir:     "./plugins",
             pluginFiles:   [ ],
             production:    false,
-            sessionName:   "xapiSession",
+            sessionName:   "xpapiSession",
             uploadDir:     this._os.tmpdir(),
             verbosity:     1,     // 0 = quiet, 1 = warnings, 2 = info, 3 = debug
         };
@@ -120,7 +120,7 @@ class xapi {
                 this._server.get(this._config.genDocsPath, docsHandler);
             }
         } catch(e) {
-            this.error("fatal", "Unable to initialize Restify.", "xapi.constructor");
+            this.error("fatal", "Unable to initialize Restify.", "xpapi.constructor");
         }
 
         // Set up handler dir watcher if configured ----------------------------
@@ -137,7 +137,7 @@ class xapi {
 
         this.error("info", "Server has been initialized and is listening to "
             + this._config.apiPath + " on port " + this._config.apiPort + ".",
-            "xapi.constructor");
+            "xpapi.constructor");
 
     }
 
@@ -151,7 +151,7 @@ class xapi {
 
         // TODO: handle sessions
 
-        // Check for the xapi request ------------------------------------------
+        // Check for the xpapi request ------------------------------------------
 
         if(req.params === undefined)
             return this._fling(res, next, 406, "Missing req.params object");
@@ -160,7 +160,7 @@ class xapi {
 
         if(req.params === undefined || typeof req.params != "object"
             || req.params.cmds === undefined || !Array.isArray(req.params.cmds))
-            return this._fling(res, next, 406, "Malformed xapi object");
+            return this._fling(res, next, 406, "Malformed xpapi object");
 
 
         var xreq = req.params;
@@ -295,7 +295,7 @@ class xapi {
 
     _initHandlers() {
         if(this._handlers.length == 0)
-            this.error("fatal", "No handlers were exported by handler files.", "xapi._initHandlers");
+            this.error("fatal", "No handlers were exported by handler files.", "xpapi._initHandlers");
 
         for(var i = 0; i < this._handlers.length; i++) {
             this._initHandler(this._handlers[i]);
@@ -310,23 +310,23 @@ class xapi {
     _initHandler(handler, force = false) {
             var h = handler;
             if(h.name === undefined || !this.genval.isNonEmptyString(h.name))
-                this.error("fatal", "Missing or invalid name in handler.", "xapi._initHandlers");
+                this.error("fatal", "Missing or invalid name in handler.", "xpapi._initHandlers");
             if(this._handlers[h.name] !== undefined && !force)
-                this.error("fatal", "Duplicate name \"" + h.name + "\" in handler.", "xapi._initHandlers");
+                this.error("fatal", "Duplicate name \"" + h.name + "\" in handler.", "xpapi._initHandlers");
             if(h.args === undefined && h.args !== null)
-                this.error("fatal", "Missing args in handler\"" + h.name + "\".", "xapi._initHandlers");
+                this.error("fatal", "Missing args in handler\"" + h.name + "\".", "xpapi._initHandlers");
             var argCnt = 0;
             for(var k in h.args) {
                 argCnt++;
             }
             if(argCnt == 0) {
-                this.error("warn", "Empty args in handler \"" + h.name + "\", converted to null.", "xapi._initHandlers");
+                this.error("warn", "Empty args in handler \"" + h.name + "\", converted to null.", "xpapi._initHandlers");
                 h.args = null;
             }
             if(h.func === undefined || typeof h.func != "function")
-                this.error("fatal", "Missing or invalid function in handler \"" + h.name + "\".", "xapi._initHandlers");
+                this.error("fatal", "Missing or invalid function in handler \"" + h.name + "\".", "xpapi._initHandlers");
             if(h.desc === undefined || !this.genval.isNonEmptyString(h.desc))
-                this.error("warn", "Missing or invalid desc in handler \"" + h.name + "\".", "xapi._initHandlers");
+                this.error("warn", "Missing or invalid desc in handler \"" + h.name + "\".", "xpapi._initHandlers");
 
             h.init = true;
 
@@ -345,18 +345,18 @@ class xapi {
             var arg = args[name];
 
             if(arg.valid === undefined)
-                this.error("fatal", "Missing valid attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xapi._validateHandlerArgs");
+                this.error("fatal", "Missing valid attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xpapi._validateHandlerArgs");
 
             // TODO: validate validators. No, seriously.
 
             if(arg.required === undefined)
-                this.error("fatal", "Missing required attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xapi._validateHandlerArgs");
+                this.error("fatal", "Missing required attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xpapi._validateHandlerArgs");
 
             if(arg.errmsg === undefined)
-                this.error("fatal", "Missing errmsg attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xapi._validateHandlerArgs");
+                this.error("fatal", "Missing errmsg attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xpapi._validateHandlerArgs");
 
             if(arg.desc === undefined)
-                this.error("warn", "Missing desc attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xapi._validateHandlerArgs");
+                this.error("warn", "Missing desc attribute for arg \"" + name + "\" in handler \"" + handlerName + "\".", "xpapi._validateHandlerArgs");
 
         }
 
@@ -371,7 +371,7 @@ class xapi {
         for(var k in this._handlers) {
             if(!this._handlers[k].init) {
                 this._initHandler(this._handlers[k], true);
-                this.error("info", "Reloaded handler file \"" + file + "\" after change.", "xapi._loadChangedHandler");
+                this.error("info", "Reloaded handler file \"" + file + "\" after change.", "xpapi._loadChangedHandler");
             }
         }
     }
@@ -384,23 +384,23 @@ class xapi {
         try {
             delete require.cache[filename];
             var handlers = require(filename);
-            this.error("debug", "Loaded \"" + filename + "\".", "xapi._loadHandler");
+            this.error("debug", "Loaded \"" + filename + "\".", "xpapi._loadHandler");
             if(!Array.isArray(handlers)) {
                 handlers = [handlers];
             }
 
             for(var h = 0; h < handlers.length; h++) {
                 if(this._handlers[handlers[h].name] === undefined) {
-                    this.error("debug", "Loaded handler " + handlers[h].name + " from " + filename + ".", "xapi._loadHandler");
+                    this.error("debug", "Loaded handler " + handlers[h].name + " from " + filename + ".", "xpapi._loadHandler");
                 } else {
-                    this.error("debug", "Reloaded handler " + handlers[h].name + " from " + filename + ".", "xapi._loadHandler");
+                    this.error("debug", "Reloaded handler " + handlers[h].name + " from " + filename + ".", "xpapi._loadHandler");
                 }
                 handlers[h].init = false;
                 this._handlers[handlers[h].name] = handlers[h];
             }
 
         } catch(e) { console.log(e);
-            this.error("fatal", "Unable to require \"" + filename + "\".", "xapi._loadHandler");
+            this.error("fatal", "Unable to require \"" + filename + "\".", "xpapi._loadHandler");
         }
 
     }
@@ -416,7 +416,7 @@ class xapi {
         if(this._config.autoload) {
             try {
                 var items = this._fs.readdirSync(this._config.handlerDir, { withFileTypes: true });
-                this.error("debug", "Found " + items.length + " items in " + this._config.handlerDir + ".", "xapi._loadHandlers");
+                this.error("debug", "Found " + items.length + " items in " + this._config.handlerDir + ".", "xpapi._loadHandlers");
 
                 for(var i = 0; i < items.length; i++) {
                     if(items[i].isFile()) {
@@ -426,7 +426,7 @@ class xapi {
 
             } catch(e) {console.log(e);
                 this.error("fatal", "Unable to open handler directory \""
-                    + this._fs.realpathSync(this._config.handlerDir) + "\".", "xapi._loadHandlers");
+                    + this._fs.realpathSync(this._config.handlerDir) + "\".", "xpapi._loadHandlers");
             }
 
         } else {
@@ -438,7 +438,7 @@ class xapi {
                     this._loadHandler(this._config.handlerFiles[i]);
                 } catch(e) {
                     this.error("fatal", "Unable to require \"" + this._config.handlerFiles[i] + "\".",
-                        "xapi._loadHandlers");
+                        "xpapi._loadHandlers");
                 }
             }
         }
@@ -473,22 +473,22 @@ class xapi {
             try {
                 var items = this._fs.readdirSync(this._config.pluginDir, { withFileTypes: true });
                 this.error("debug", "Found " + items.length + " items in "
-                    + this._config.pluginDir + ".", "xapi.constructor");
+                    + this._config.pluginDir + ".", "xpapi.constructor");
 
                 for(var i = 0; i < items.length; i++) {
                     if(items[i].isFile()) {
                         this._config.pluginFiles.push(this._config.pluginDir + "/" + items[i].name);
                         this.error("debug", "Found plugin file \""
                             + this._config.pluginFiles[this._config.pluginFiles.length - 1]
-                            + "\".", "xapi.constructor");
+                            + "\".", "xpapi.constructor");
                     }
                 }
                 this.error("debug", "Found " + this._config.pluginFiles.length
-                    + " plugin files.", "xapi.constructor");
+                    + " plugin files.", "xpapi.constructor");
 
             } catch(e) {
                 this.error("fatal", "Unable to open plugin directory \""
-                    + this._config.pluginDir + "\".", "xapi.constructor");
+                    + this._config.pluginDir + "\".", "xpapi.constructor");
             }
         }
 
@@ -498,7 +498,7 @@ class xapi {
 
                 var plugins = require(this._config.pluginFiles[i]);
                 this.error("debug", "Loaded \"" + this._config.pluginFiles[i] + "\".",
-                    "xapi.constructor");
+                    "xpapi.constructor");
 
                 if(plugins.pre)
                     this._server.pre(plugins.pre);
@@ -509,7 +509,7 @@ class xapi {
             } catch(e) {
 
                 this.error("fatal", "Unable to require \"" + this._config.pluginFiles[i] + "\".",
-                    "xapi.constructor");
+                    "xpapi.constructor");
             }
 
         }
@@ -537,7 +537,7 @@ class xapi {
                     if(!Array.isArray(val)
                         || (tests[i][1] !== undefined && val.length < tests[i][1])
                         || (tests[i][2] !== undefined && val.length < tests[i][2])) {
-                        this.error("info", "Failed isArray test.", "xapi._validate");
+                        this.error("info", "Failed isArray test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -548,7 +548,7 @@ class xapi {
                 case "isArrayOfIntegers":
                 case "isArrayOfInts":
                     if(!this.genval.isArrayOfInts(val, tests[i][1], tests[i][2])) {
-                        this.error("info", "Failed " + test[i][0] + " test.", "xapi._validate");
+                        this.error("info", "Failed " + test[i][0] + " test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -558,7 +558,7 @@ class xapi {
 
                 case "isArrayOfFloats":
                     if(!this.genval.isArrayOfFloats(val, tests[i][1], tests[i][2])) {
-                        this.error("info", "Failed " + test[i][0] + " test.", "xapi._validate");
+                        this.error("info", "Failed " + test[i][0] + " test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -568,7 +568,7 @@ class xapi {
 
                 case "isArrayOfNonEmptyStrings":
                     if(!this.genval.isArrayOfNonEmptyStrings(val, tests[i][1], tests[i][2])) {
-                        this.error("info", "Failed " + test[i][0] + " test.", "xapi._validate");
+                        this.error("info", "Failed " + test[i][0] + " test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -578,7 +578,7 @@ class xapi {
 
                 case "isArrayOfStrings":
                     if(!this.genval.isArrayOfStrings(val, tests[i][1], tests[i][2])) {
-                        this.error("info", "Failed " + test[i][0] + " test.", "xapi._validate");
+                        this.error("info", "Failed " + test[i][0] + " test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -588,7 +588,7 @@ class xapi {
 
                 case "isBetween":
                     if(!this.genval.isBetween(val, tests[i][1], tests[i][2])) {
-                        this.error("info", "Failed isWithin test.", "xapi._validate");
+                        this.error("info", "Failed isWithin test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -597,7 +597,7 @@ class xapi {
 
                 case "isBoolean":
                     if(!this.genval.isBoolean(val)) {
-                        this.error("info", "Failed isBoolean test.", "xapi._validate");
+                        this.error("info", "Failed isBoolean test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -606,7 +606,7 @@ class xapi {
 
                 case "isChar":
                     if(!this.genval.isChar(val)) {
-                        this.error("info", "Failed isChar test.", "xapi._validate");
+                        this.error("info", "Failed isChar test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -617,7 +617,7 @@ class xapi {
                 case "isInteger":
                     val = parseInt(val);
                     if(isNaN(val) || !this.genval.isInteger(val)) {
-                        this.error("info", "Failed isInt test.", "xapi._validate");
+                        this.error("info", "Failed isInt test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -626,7 +626,7 @@ class xapi {
 
                 case "isInArray":
                     if(!this.genval.isInArray(val, tests[i][1])) {
-                        this.error("info", "Failed isInArray test.", "xapi._validate");
+                        this.error("info", "Failed isInArray test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
 
@@ -637,7 +637,7 @@ class xapi {
                 case "isFloat":
                     val = parseFloat(val);
                     if(isNaN(val) || !this.genval.isFloat(val)) {
-                        this.error("info", "Failed isFloat test.", "xapi._validate");
+                        this.error("info", "Failed isFloat test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -646,7 +646,7 @@ class xapi {
 
                 case "isNonEmptyString":
                     if(!this.genval.isNonEmptyString(val)) {
-                        this.error("info", "Failed isNonEmptyString test.", "xapi._validate");
+                        this.error("info", "Failed isNonEmptyString test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -655,7 +655,7 @@ class xapi {
 
                 case "isNull":
                     if(!this.genval.isNull(val)) {
-                        this.error("info", "Failed isNull test.", "xapi._validate");
+                        this.error("info", "Failed isNull test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -667,7 +667,7 @@ class xapi {
                     if(!this.genval.isString(val)
                         || (tests[i][1] !== undefined && val.length < tests[i][1])
                         || (tests[i][2] !== undefined && val.length < tests[i][2])) {
-                        this.error("info", "Failed isString test.", "xapi._validate");
+                        this.error("info", "Failed isString test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -677,7 +677,7 @@ class xapi {
 
                 case "isWithin":
                     if(!this.genval.isWithin(val, tests[i][1], tests[i][2])) {
-                        this.error("info", "Failed isWithin test.", "xapi._validate");
+                        this.error("info", "Failed isWithin test.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -701,7 +701,7 @@ class xapi {
                 case "toNumber":
                     val = parseFloat(val);
                     if(isNaN(val)) {
-                        this.error("info", "Cannot convert val to a number.", "xapi._validate");
+                        this.error("info", "Cannot convert val to a number.", "xpapi._validate");
                         throw new Error("_validate failed.");
                     }
                     break;
@@ -713,12 +713,12 @@ class xapi {
                     try {
                         val = val.trim();
                     } catch(e) {
-                        throw new Error("warn", "Invalid type passed to trim test.", "xapi._validate");
+                        throw new Error("warn", "Invalid type passed to trim test.", "xpapi._validate");
                     }
                     break;
 
                 default:
-                    this.error("warn", "Undefined test \"" + tests[i][0] + "\".", "xapi._validate");
+                    this.error("warn", "Undefined test \"" + tests[i][0] + "\".", "xpapi._validate");
                     throw new Error("Validation failed with unknown test.");
                     break;
             }
@@ -738,7 +738,7 @@ class xapi {
 
         console.log(
             "\n" + this._ac.blue("===========================================================================") + "\n"
-            + this._ac.yellow.bold("                      xapi v" + this._version + " -- Sane Web APIs") + "\n"
+            + this._ac.yellow.bold("                      xpapi v" + this._version + " -- Sane Web APIs") + "\n"
             + this._ac.blue("===========================================================================") + "\n"
         );
 
@@ -762,7 +762,7 @@ class xapi {
     // level, and if the error is fatal, terminates the process.
     //--------------------------------------------------------------------------
 
-    error(level, message, location = "xapi", obj = null) {
+    error(level, message, location = "xpapi", obj = null) {
 
         switch(level) {
             case "fatal":
@@ -889,7 +889,7 @@ class xapi {
         );
 
         res.setHeader("content-type", "text/html");
-        res.setHeader("Set-Cookie", "xapiDocs=true; HttpOnly;");
+        res.setHeader("Set-Cookie", "xpapiDocs=true; HttpOnly;");
         res.end(docs.join("\n"));
         return next();
 
@@ -898,7 +898,7 @@ class xapi {
 }
 
 //--------------------------------------------------------------------------
-// If a file is uploaded, we search for an xapi command with an argument
+// If a file is uploaded, we search for an xpapi command with an argument
 // whose name matches the fieldname with a prepended '@'. (There can be
 // more than one, incidentally.) It then copies an object with information
 // about the file to that argument, minus the '@', and deletes the placeholder.
@@ -913,7 +913,7 @@ function _uploadHandler(options) {
 
         var xreq = null;
         try {
-            xreq = JSON.parse(req.body.xapi);
+            xreq = JSON.parse(req.body.xpapi);
         } catch(e) {
             // TODO: need some kind of error notification
             return next();
@@ -936,7 +936,7 @@ function _uploadHandler(options) {
             }
         }
 
-        req.body.xapi = JSON.stringify(xreq);
+        req.body.xpapi = JSON.stringify(xreq);
         return next();
     }
 
@@ -1097,4 +1097,4 @@ var genval = {
 
 
 
-module.exports = xapi;
+module.exports = xpapi;

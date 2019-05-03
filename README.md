@@ -1,6 +1,6 @@
-# xapi - Sane Web APIs v0.0.2
+# xpapi - Sane Web APIs v0.0.2
 
-The xapi module presents an easy-to-use, simple, and powerful micro-framework 
+The xpapi module presents an easy-to-use, simple, and powerful micro-framework 
 for building web APIs on top of Restify. It is purely for APIs and has no UI
 functionality. It is also moderately opinionated, providing for a minimalist
 flow built around JSON and POST requests. It is also capable of generating
@@ -8,15 +8,15 @@ documentation <!-- and client helper libraries --> on the fly.
 
 ## Usage
 
-The module is initialized by instantiating the ``xapi`` class:
+The module is initialized by instantiating the ``xpapi`` class:
 
 ```javascript
-var xapi = new (require("xapi"))(options);
+var xpapi = new (require("xpapi"))(options);
 ```
 
 ...where `options` is an object containing the runtime options:
 
-* **`apiPath`:** Specifies the path where xapi will accept requests, e.g. `"/api"`. There is only one of these; xapi doesn't play silly games with URLs.
+* **`apiPath`:** Specifies the path where xpapi will accept requests, e.g. `"/api"`. There is only one of these; xpapi doesn't play silly games with URLs.
 * **`apiPort`:** Specifies the port to listen to, e.g., 80, 443, 8080, etc.
 * **`autoload`:** If true, handlers will be automatically loaded from `handlerDir`.
 * **`autoreload`:** If true, `handlerDir` will be monitored for changes and modules automatically reloaded.
@@ -31,7 +31,7 @@ var xapi = new (require("xapi"))(options);
 * **`name`:** Display name for the API in generated documentation. Defaults to "Unnamed".
 * **`pluginDir`:** Specifies the location of the plugin files.
 * **`pluginFiles`:** If `autoload` is `false`, this must be an array of plugin filenames.
-* **`production`:** Defaults to `false`. If `true`, xapi is runnning in a production environment.
+* **`production`:** Defaults to `false`. If `true`, xpapi is runnning in a production environment.
 * **`sessionName`:** Optional. Name of session cookie.
 * **`uploadDir`:** Optional directory for file uploads. If not specified, defaults to `os.tmpdir()`.
 * **`verbosity`:** Sets verbosity level for logging. 0 = quiet, 1 = warnings, 2 = info, 3 = debug.
@@ -129,7 +129,7 @@ client-side code can depend on.
 
 ### Handlers
 
-Of course, xapi does nothing without adding your own handler files. A handler is 
+Of course, xpapi does nothing without adding your own handler files. A handler is 
 simply a module that exports an array of handler objects. Here's an example:
 
 ```javascript
@@ -204,7 +204,7 @@ as many handler files as you like.
 
 ### Built-in Generic Validation Functions
 
-Xapi provides a bunch of built-in validation functions, mostly for generic type 
+Xpapi provides a bunch of built-in validation functions, mostly for generic type 
 and range validation, to avoid repetitive ad hoc validation in the user-supplied 
 handler functions. All of them return the supplied argument on success, which 
 means that they can also be used to perform transformations on the data like
@@ -242,7 +242,7 @@ File uploads via multipart/form-data is inherently hacky, so handling them
 involves a certain amount of meta-hackery. For a file upload field to be 
 included in the arguments to a handler command, you must create a handler 
 argument named `@fieldname` where `fieldname` is the name of the file upload 
-field. Xapi will search for uploaded files, match them to the specially marked 
+field. Xpapi will search for uploaded files, match them to the specially marked 
 fields, removing the leading `@` as it goes, and leaving a data structure as the 
 field value, e.g.,
 
@@ -268,7 +268,7 @@ return {
 
 ### Plugins
 
-Xapi supports `pre` and `use` plugins. These are ordinary Restify plugins. If 
+Xpapi supports `pre` and `use` plugins. These are ordinary Restify plugins. If 
 `autoload` is `true`, they are automatically loaded from the files in 
 `pluginDir`; otherwise, they must be added to `pluginFiles` explicitly. The 
 files should export an object with a `pre` and/or `use` element, the contents of 
@@ -276,7 +276,7 @@ which are arrays of plugin functions.
 
 ### Dependency Injection
 
-Xapi supports a lightweight form of dependency injection using the `dependencies`
+Xpapi supports a lightweight form of dependency injection using the `dependencies`
 configuration option, which specifies a path to a file mapping command names to
 objects containing dependencies. In the simple example below, the `sumOfNumbers`
 command will receive the associated object as its third argument.
@@ -289,10 +289,10 @@ module.exports = {
 
 ### API Versioning
 
-For the sake of simplicity and flexibility, Xapi does not provide explicit 
+For the sake of simplicity and flexibility, Xpapi does not provide explicit 
 handling of API versions. However, as the `request` object is the first argument 
 passed to every handler function, it is possible for clients to specify the 
-desired version via a custom HTTP header, e.g., `X-Xapi-Version`, and have 
+desired version via a custom HTTP header, e.g., `X-Xpapi-Version`, and have 
 handlers act accordingly, either with internal logic or by dispatching the 
 requests to suitable private functions based on version.
 

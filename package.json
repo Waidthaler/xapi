@@ -1,15 +1,15 @@
 {
-  "name": "xapi",
+  "name": "xpapi",
   "version": "1.0.1",
   "description": "A simple but powerful API framework that gets back to a sane RPC model.",
-  "main": "index.js",
+  "main": "xpapi.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "api"
   ],
-  "author": "Western Express, Inc.",
+  "author": "Erich Waidthaler",
   "license": "MIT",
   "dependencies": {
     "ansi-colors": "^3.2.4",
