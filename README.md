@@ -1,4 +1,4 @@
-# xpapi - Sane Web APIs v1.0.2
+# xpapi - Sane Web APIs v1.1.0
 
 The xpapi module presents an easy-to-use, simple, and powerful micro-framework 
 for building web APIs on top of Restify. It is purely for APIs and has no UI
@@ -302,8 +302,9 @@ only handlers present in the top-level `handlerDir` will be served at `apiPath`,
 and handlers in subdirectories will be served at URLs corresponding to `apiPath` +
 `/subdirectoryName`.
 
-For example, let's assume your `apiPath` is `/api` and your `handlerDir` is 
-named `handlers`, and its layout looks something like this:
+For example, let's assume your `apiPath` is `/api*` -- the trailing `*` is 
+required in this case -- and your `handlerDir` is named `handlers`, and its 
+layout looks something like this:
 
 ```
 /handlers
@@ -331,17 +332,15 @@ this feature.
 Xpapi was originally named Xapi, but that name was already in use by another 
 project when it came time to publish. Neither actually stands for anything. Feel 
 free to have pointless debates over whether it should be pronounced 
-ex-pee-ay-pee-eye or ex-pappy. Bonus points for complaining that the choices 
-should be rendered in IPA phonetic characters for non-English speakers. Odds are 
-good it will be completely renamed by the time it hits 2.0.0.
+ex-pee-ay-pee-eye or ex-pappy. Bonus points for complaining that the 
+pronunciation guides should be rendered in IPA phonetic characters for 
+non-English speakers. Odds are good it will be completely renamed by the time it 
+hits 2.0.0.
 
 
 ### TODO
 
-* While we're still not going to play the aforementioned silly games with URLs,
-  it does look like it would be useful to hang different handlers from different
-  top-level URLs both for versioning and for making it easier to serve several
-  APIs from the same Xpapi installation.
+* Improved dependency injection.
 * More and better examples.
 * Improved documentation.
 * Provide a hook for custom validators.
@@ -356,4 +355,4 @@ good it will be completely renamed by the time it hits 2.0.0.
 * Removed leading underscores from "private" methods. 
 * Ported over a more refined version of the `error` and `outputHeader` methods from another project.
 * Documented `apiMulti` configuration option.
-
+* Implemented `apiMulti` functionality.

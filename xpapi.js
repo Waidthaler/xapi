@@ -34,7 +34,7 @@ class xpapi {
         this.genval     = genval;
 
         this.config    = {
-            apiPath:       "/api*",
+            apiPath:       "/api",
             apiPort:       8080,
             apiMulti:      false,
             autoload:      true,         // load from handlers automatically
