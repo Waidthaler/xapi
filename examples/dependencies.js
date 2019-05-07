@@ -7,5 +7,5 @@
 // argument to the sumOfNumbers handler.
 
 module.exports = {
-    sumOfNumbers: { foo: "bar", baz: "quux" }
+    "sumOfNumbers": { foo: "bar", baz: "quux" }
 };

@@ -21,6 +21,7 @@ class xpapi {
         this.cors      = require("restify-cors-middleware");
         this.cookies   = require("restify-cookies");
         this.os        = require("os");
+        this.util      = require("util");
 
         this.sep       = require("path").sep;
 
@@ -28,13 +29,14 @@ class xpapi {
 
         this.server    = null;
         this.handlers  = { };
+        this.subPaths  = { };
 
         this.genval     = genval;
 
         this.config    = {
-            apiPath:       "/api",
+            apiPath:       "/api*",
             apiPort:       8080,
-            apiMulti:      true,
+            apiMulti:      false,
             autoload:      true,         // load from handlers automatically
             autoreload:    true,         // reload handlers when changed
             corsOrigins:   false,
@@ -124,6 +126,7 @@ class xpapi {
                 var docsHandler = this.documentation.bind(this);
                 this.server.get(this.config.genDocsPath, docsHandler);
             }
+
         } catch(e) {
             this.error("fatal", "Unable to initialize Restify.", "xpapi.constructor");
         }
@@ -167,7 +170,6 @@ class xpapi {
             || req.params.cmds === undefined || !Array.isArray(req.params.cmds))
             return this.fling(res, next, 406, "Malformed xpapi object");
 
-
         var xreq = req.params;
 
         //----------------------------------------------------------------------
@@ -183,6 +185,11 @@ class xpapi {
 
             if(xreq.cmds[c].cmd === undefined)
                 return this.fling(res, next, 406, "Missing cmd array");
+
+            // Make twiddle the names for apiMulti support ---------------------
+
+            if(this.config.apiMulti)
+                xreq.cmds[c].cmd = xreq["*"] + "/" + xreq.cmds[c].cmd;
 
             var cmd = xreq.cmds[c];
 
@@ -299,12 +306,14 @@ class xpapi {
     //--------------------------------------------------------------------------
 
     /* FUNC */ initHandlers() {
-        if(this.handlers.length == 0)
+        if(Object.keys(this.handlers).length == 0)
             this.error("fatal", "No handlers were exported by handler files.", "xpapi._initHandlers");
 
-        for(var i = 0; i < this.handlers.length; i++) {
-            this.initHandler(this.handlers[i]);
+        for(var h in this.handlers) {
+            this.initHandler(this.handlers[h]);
         }
+
+        this.subPaths = Object.keys(this.subPaths);
     }
 
     //--------------------------------------------------------------------------
@@ -316,8 +325,6 @@ class xpapi {
             var h = handler;
             if(h.name === undefined || !this.genval.isNonEmptyString(h.name))
                 this.error("fatal", "Missing or invalid name in handler.", "xpapi._initHandlers");
-            if(this.handlers[h.name] !== undefined && !force)
-                this.error("fatal", "Duplicate name \"" + h.name + "\" in handler.", "xpapi._initHandlers");
             if(h.args === undefined && h.args !== null)
                 this.error("fatal", "Missing args in handler\"" + h.name + "\".", "xpapi._initHandlers");
             var argCnt = 0;
@@ -374,17 +381,20 @@ class xpapi {
     // loads whichever files were explicitly placed in handlerFiles at init.
     //--------------------------------------------------------------------------
 
-    /* FUNC */ loadHandlers() {
+    /* FUNC */ loadHandlers(subdir = false) {
 
         if(this.config.autoload) {
 
             try {
-                var items = this.fs.readdirSync(this.config.handlerDir, { withFileTypes: true });
-                this.error("debug", "Found " + items.length + " items in " + this.config.handlerDir + this.sep, "xpapi._loadHandlers");
+                var cwd = subdir ? subdir : this.config.handlerDir;
+                var items = this.fs.readdirSync(cwd, { withFileTypes: true });
+                this.error("debug", "Found " + items.length + " items in " + cwd + this.sep, "xpapi._loadHandlers");
 
                 for(var i = 0; i < items.length; i++) {
                     if(items[i].isFile()) {
-                        this.loadHandler(this.config.handlerDir + this.sep + items[i].name);
+                        this.loadHandler(cwd + this.sep + items[i].name);
+                    } else if(items[i].isDirectory() && this.apiMulti) {
+                        this.loadHandlers(this.fs.realpathSync(cwd + this.sep + items[i].name));
                     }
                 }
 
@@ -410,6 +420,43 @@ class xpapi {
 
 
     //--------------------------------------------------------------------------
+    // Loads a handler file.
+    //--------------------------------------------------------------------------
+
+    /* FUNC */ loadHandler(filename) {
+        try {
+            delete require.cache[filename];
+            var handlers = require(filename);
+            this.error("debug", "Loaded \"" + filename + "\".", "xpapi._loadHandler");
+            if(this.config.apiMulti) {
+                var subPath = "/" + this.getSubPath(filename);
+                if(subPath != "/")
+                    subPath += "/";
+            } else {
+                var subPath = "";
+            }
+            if(!Array.isArray(handlers)) {
+                handlers = [handlers];
+            }
+
+            for(var h = 0; h < handlers.length; h++) {
+                handlers[h].name = subPath + handlers[h].name;
+                if(this.handlers[handlers[h].name] === undefined) {
+                    this.error("debug", "Loaded handler " + handlers[h].name + " from " + filename + ".", "xpapi._loadHandler");
+                } else {
+                    this.error("debug", "Reloaded handler " + handlers[h].name + " from " + filename + ".", "xpapi._loadHandler");
+                }
+                handlers[h].init = false;
+                this.handlers[handlers[h].name] = handlers[h];
+            }
+
+        } catch(e) {
+            this.error("fatal", "Unable to require \"" + filename + "\".", "xpapi._loadHandler");
+        }
+
+    }
+
+    //--------------------------------------------------------------------------
     // (Re)loads a changed handler file.
     //--------------------------------------------------------------------------
 
@@ -432,40 +479,8 @@ class xpapi {
     /* FUNC */ getSubPath(path) {
         var remove = this.config.handlerDir.split(this.sep).length;
         var path = path.split(this.sep);
-        return path.slice(remove - 1, path.length - 1).join(this.sep);
+        return path.slice(remove, path.length - 1).join(this.sep);
     }
-
-    //--------------------------------------------------------------------------
-    // Loads a handler file.
-    //--------------------------------------------------------------------------
-
-    /* FUNC */ loadHandler(filename) {
-        try {
-            delete require.cache[filename];
-            var handlers = require(filename);
-            this.error("debug", "Loaded \"" + filename + "\".", "xpapi._loadHandler");
-            var subPath = this.getSubPath(filename);
-            if(!Array.isArray(handlers)) {
-                handlers = [handlers];
-            }
-
-            for(var h = 0; h < handlers.length; h++) {
-                handlers[h].subPath = subPath;
-                if(this.handlers[handlers[h].name] === undefined) {
-                    this.error("debug", "Loaded handler " + handlers[h].name + " from " + filename + ".", "xpapi._loadHandler");
-                } else {
-                    this.error("debug", "Reloaded handler " + handlers[h].name + " from " + filename + ".", "xpapi._loadHandler");
-                }
-                handlers[h].init = false;
-                this.handlers[handlers[h].name] = handlers[h];
-            }
-
-        } catch(e) { console.log(e);
-            this.error("fatal", "Unable to require \"" + filename + "\".", "xpapi._loadHandler");
-        }
-
-    }
-
 
     //--------------------------------------------------------------------------
     // Utility function to return a copy of an array sorted and with duplicates

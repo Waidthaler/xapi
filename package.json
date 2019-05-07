@@ -3,6 +3,10 @@
   "version": "1.0.2",
   "description": "A simple but powerful API framework that gets back to a sane RPC model.",
   "main": "xpapi.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Waidthaler/xpapi.git"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
