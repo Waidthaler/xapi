@@ -17,7 +17,12 @@ var yoMama = {
         }
     },
     desc: "This is a silly test function.",
+    $deps: "Pick me!",
     func: function(req, args) {
+
+        if(this.test)
+            console.log("The handler plugin test succeeded.");
+
         if(args.echo == "Your mother") {
             return {
                 output: "Tell your mom I said hi!"

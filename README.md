@@ -1,4 +1,4 @@
-# xpapi - Sane Web APIs v1.1.0
+# xpapi - Sane Web APIs v1.2.0
 
 The xpapi module presents an easy-to-use, simple, and powerful micro-framework 
 for building web APIs on top of Restify. It is purely for APIs and has no UI
@@ -37,6 +37,9 @@ var xpapi = new (require("xpapi"))(options);
 * **`uploadDir`:** Optional directory for file uploads. If not specified, defaults to `os.tmpdir()`.
 * **`verbosity`:** Sets verbosity level for logging. 0 = quiet, 1 = warnings, 2 = info, 3 = debug.
 
+You are free to add your own custom config option values, though to avoid 
+collisions with future options, it is best to begin their names with `$`. This can be
+useful with handler plugins (see below).
 
 ## The Basic Flow
 
@@ -269,13 +272,86 @@ return {
 
 ### Plugins
 
-Xpapi supports `pre` and `use` plugins. These are ordinary Restify plugins. If 
-`autoload` is `true`, they are automatically loaded from the files in 
-`pluginDir`; otherwise, they must be added to `pluginFiles` explicitly. The 
-files should export an object with a `pre` and/or `use` element, the contents of 
-which are arrays of plugin functions.
+Xpapi supports three kinds of plugins as of v1.2.0: `pre` and `use` plugins, 
+which are ordinary Restify plugins, and `handler` plugins which can perform 
+arbitrary preprocessing on handler functions. 
 
-### Dependency Injection
+If `autoload` is `true`, they are automatically loaded from the files in 
+`pluginDir`; otherwise, they must be added to `pluginFiles` explicitly. The 
+plugin files should export an object with keys equal to one of the plugin types, 
+the values of which are arrays of plugin functions.
+
+```javascript
+module.exports = {
+    pre:      [ func1, func2, func3 ],
+    use:      [ func4, func5, func6 ],
+    handler:  [ func6, func7, func8 ],
+};
+```
+
+#### Restify `pre` and `use` Plugins
+
+These are ordinary Restify plugins, for which see the Restify documentation. The
+one Xpapi-specific quirk to be aware of is that they are initialized in the order
+they are loaded from disk. While this is normally alphabetical order, this is not
+guaranteed, so if a specific order is needed, it will be preferable to explicitly
+set `pluginFiles`.
+
+#### Handler Plugins
+
+Handler plugin functions are called on handlers during handler initialization. 
+They are called with two arguments, the a copy of the Xpapi `config` object and 
+the whole handler object, the latter of which the plugin function is free to 
+modify.
+
+While such plugins can in theory do almost anything, one use case they can serve 
+is to implement a more robust form of dependency injection than the lightweight 
+type described in the next section. Since this serves as a good example of what
+handler plugins can do, we'll sketch the outlines here.
+
+In this example, we extend the handler objects to have an attribute named `$deps`,
+which we can safely do because -- pinky swear -- Xpapi's own required attributes
+will never begin with `$`. Here's what that would look like in a trivial case:
+
+```javascript
+var example = {
+    name: "example",
+    args: {
+        echo: {
+            valid:    [["isNonEmptyString"]],
+            required: true,
+            errmsg:   "echo must be a non-empty string.",
+            desc:     "This text will be output via a wrapper."
+        }
+    },
+    desc: "This is a test function for a dependency injection handler plugin.",
+    func: function(req, args) {
+        this.output(args.echo);
+        return {
+            output: "Tell your mom I said hi."
+        };
+    },
+    $deps: { output: console.log },  // This could be a *much* more complex value
+}
+```
+
+In a real-world application, the plugin function is probably taking `$deps` and 
+using it to gather handles to various databases or something along those lines, 
+but in our example, it's just `bind`ing the handler function's `this` reference 
+to the object in `$deps`. Don't forget that you can define custom Xpapi options 
+which will be passed in with the `config` argument, too.
+
+```javascript
+function injector(config, handler) {
+    handler.func = handler.func.bind(handler.$deps);
+}
+```
+
+After being processed by our `injector` function, `example.func` will use
+`this.output` -- a reference to `console.log` -- to output `args.echo` to
+the console.
+
+### Lightweight Dependency Injection
 
 Xpapi supports a lightweight form of dependency injection using the `dependencies`
 configuration option, which specifies a path to a file mapping command names to
@@ -340,7 +416,6 @@ hits 2.0.0.
 
 ### TODO
 
-* Improved plugin-based dependency injection.
 * More and better examples.
 * Improved documentation.
 * Provide a hook for custom validators.
@@ -349,6 +424,10 @@ hits 2.0.0.
 
 
 ### Changelog
+
+#### 1.2.0
+
+* Added handler plugins, partly to support more robust dependency injection.
 
 #### 1.1.0
 

@@ -25,7 +25,7 @@ class xpapi {
 
         this.sep       = require("path").sep;
 
-        this.version   = "1.1.0";
+        this.version   = "1.2.0";
 
         this.server    = null;
         this.handlers  = { };
@@ -60,9 +60,10 @@ class xpapi {
 
         if(options !== undefined) {
             for(var k in options) {
-                if(this.config[k] !== undefined) {
-                    this.config[k] = options[k];
+                if(this.config[k] === undefined) {
+                    this.error("warn", "User defined config key \"" + k + "\" added. Is this what you mean?", "xpapi.main");
                 }
+                this.config[k] = options[k];
             }
         }
 
@@ -543,6 +544,18 @@ class xpapi {
 
                 if(plugins.use)
                     this.server.use(plugins.use);
+
+                if(plugins.handler) {
+                    var config = { };
+                    for(var k in this.config) {
+                        config[k] = this.config[k];
+                    }
+                    for(var p in plugins.handler) {
+                        for(var h in this.handlers) {
+                            plugins.handler[p](config, this.handlers[h]);
+                        }
+                    }
+                }
 
             } catch(e) {
 

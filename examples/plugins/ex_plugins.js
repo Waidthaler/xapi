@@ -5,4 +5,10 @@ function dummy(req, res, next) {
     return next();
 }
 
-module.exports = { pre: [dummy] };
+function kludger(options, handler) {
+    if(handler.$deps !== undefined) {
+        handler.func = handler.func.bind({ test: console.log });
+    }
+}
+
+module.exports = { pre: [dummy], handler: [kludger] };
