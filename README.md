@@ -340,7 +340,7 @@ hits 2.0.0.
 
 ### TODO
 
-* Improved dependency injection.
+* Improved plugin-based dependency injection.
 * More and better examples.
 * Improved documentation.
 * Provide a hook for custom validators.
@@ -350,9 +350,9 @@ hits 2.0.0.
 
 ### Changelog
 
-#### 1.1.0 (in progress)
+#### 1.1.0
 
 * Removed leading underscores from "private" methods. 
 * Ported over a more refined version of the `error` and `outputHeader` methods from another project.
 * Documented `apiMulti` configuration option.
-* Implemented `apiMulti` functionality.
+* Implemented `apiMulti` functionality. 
