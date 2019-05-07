@@ -9,30 +9,32 @@
 
 class xpapi {
 
-    constructor(options) {
+    /* FUNC */ constructor(options) {
 
         // Set up required modules ---------------------------------------------
 
-        this._ac        = require("ansi-colors");
-        this._fs        = require("fs");
-        this._monocle   = require("monocle")();
-        this._process   = require("process");
-        this._restify   = require("restify");
-        this._errors    = require("restify-errors");
-        this._cors      = require("restify-cors-middleware");
-        this._cookies   = require("restify-cookies");
-        this._os        = require("os");
+        this.ac        = require("ansi-colors");
+        this.fs        = require("fs");
+        this.monocle   = require("monocle")();
+        this.restify   = require("restify");
+        this.errors    = require("restify-errors");
+        this.cors      = require("restify-cors-middleware");
+        this.cookies   = require("restify-cookies");
+        this.os        = require("os");
 
-        this._version   = "1.0.2";
+        this.sep       = require("path").sep;
 
-        this._server    = null;
-        this._handlers  = { };
+        this.version   = "1.1.0";
+
+        this.server    = null;
+        this.handlers  = { };
 
         this.genval     = genval;
 
-        this._config    = {
+        this.config    = {
             apiPath:       "/api",
             apiPort:       8080,
+            apiMulti:      true,
             autoload:      true,         // load from handlers automatically
             autoreload:    true,         // reload handlers when changed
             corsOrigins:   false,
@@ -48,7 +50,7 @@ class xpapi {
             pluginFiles:   [ ],
             production:    false,
             sessionName:   "xpapiSession",
-            uploadDir:     this._os.tmpdir(),
+            uploadDir:     this.os.tmpdir(),
             verbosity:     1,     // 0 = quiet, 1 = warnings, 2 = info, 3 = debug
         };
 
@@ -56,68 +58,71 @@ class xpapi {
 
         if(options !== undefined) {
             for(var k in options) {
-                if(this._config[k] !== undefined) {
-                    this._config[k] = options[k];
+                if(this.config[k] !== undefined) {
+                    this.config[k] = options[k];
                 }
             }
         }
 
-        if(this._config.verbosity > 0)
-            this.outputHeader();
+        this.config.handlerDir = this.fs.realpathSync(this.config.handlerDir);
+        this.config.pluginDir  = this.fs.realpathSync(this.config.pluginDir);
+
+        if(this.config.verbosity > 0)
+            this.outputHeader("Xpapi v" + this.version + " Sane web API engine");
 
         // Import dependencies for injection if specified ----------------------
 
-        if(this._config.dependencies) {
-            this._config.dependencies = require(this._config.dependencies);
+        if(this.config.dependencies) {
+            this.config.dependencies = require(this.config.dependencies);
         }
 
         // Prepare handlers and plugins ----------------------------------------
 
-        this._loadHandlers();
-        this._initHandlers();
+        this.loadHandlers();
+        this.initHandlers();
 
         // Initialize restify --------------------------------------------------
 
         try {
-            this._server = this._restify.createServer({
+            this.server = this.restify.createServer({
                 strictFormatters: false
             });
 
-            if(this._config.corsOrigins) {
-                var corsObj = this._cors({ origins: this._config.corsOrigins });
-                this._server.pre(corsObj.preflight);
-                this._server.use(corsObj.actual);
+            if(this.config.corsOrigins) {
+                var corsObj = this.cors({ origins: this.config.corsOrigins });
+                this.server.pre(corsObj.preflight);
+                this.server.use(corsObj.actual);
             }
 
-            this._loadPlugins();
+            this.loadPlugins();
 
-            this._server.use(this._cookies.parse);
-            this._server.use(this._restify.plugins.gzipResponse());
+            this.server.use(this.cookies.parse);
+            this.server.use(this.restify.plugins.gzipResponse());
 
-            this._server.use(this._restify.plugins.bodyParser({
-                maxBodySize:      this._config.maxBodySize,
+            this.server.use(this.restify.plugins.bodyParser({
+                maxBodySize:      this.config.maxBodySize,
                 mapParams:        true,
                 mapFiles:         true,
                 overrideParams:   true,
-                uploadDir:        this._config.uploadDir,
+                uploadDir:        this.config.uploadDir,
                 keepExtensions:   false,
                 multiples:        true,
                 hash:             'sha1',
                 rejectUnknown:    true,
                 requestBodyOnGet: false,
-                maxFieldsSize:    this._config.maxBodySize
+                maxFieldsSize:    this.config.maxBodySize
             }));
 
-            this._server.use(_uploadHandler());
+            this.server.use(uploadHandler());
 
-            this._server.listen(this._config.apiPort);
+            this.server.listen(this.config.apiPort);
 
-            var modHandler = this._dispatcher.bind(this);
-            this._server.post(this._config.apiPath, modHandler);
+            var modHandler = this.dispatcher.bind(this);
+            this.server.post(this.config.apiPath, modHandler);
 
-            if(this._config.genDocsPath) {
-                var docsHandler = this._documentation.bind(this);
-                this._server.get(this._config.genDocsPath, docsHandler);
+            if(this.config.genDocsPath) {
+                var docsHandler = this.documentation.bind(this);
+                this.server.get(this.config.genDocsPath, docsHandler);
             }
         } catch(e) {
             this.error("fatal", "Unable to initialize Restify.", "xpapi.constructor");
@@ -125,18 +130,18 @@ class xpapi {
 
         // Set up handler dir watcher if configured ----------------------------
 
-        if(this._config.autoload) {
-            var listener = this._loadChangedHandler.bind(this);
+        if(this.config.autoload) {
+            var listener = this.loadChangedHandler.bind(this);
 
-            this._monocle.watchDirectory({
-                root: this._config.handlerDir,
+            this.monocle.watchDirectory({
+                root: this.config.handlerDir,
                 listener: listener,
                 complete: function() { console.log("Handler autoloading enabled."); }
             });
         }
 
         this.error("info", "Server has been initialized and is listening to "
-            + this._config.apiPath + " on port " + this._config.apiPort + ".",
+            + this.config.apiPath + " on port " + this.config.apiPort + ".",
             "xpapi.constructor");
 
     }
@@ -147,20 +152,20 @@ class xpapi {
     // handlers should deal with them, and shovels data into and out of them.
     //--------------------------------------------------------------------------
 
-    _dispatcher(req, res, next) {
+    /* FUNC */ dispatcher(req, res, next) {
 
         // TODO: handle sessions
 
         // Check for the xpapi request ------------------------------------------
 
         if(req.params === undefined)
-            return this._fling(res, next, 406, "Missing req.params object");
+            return this.fling(res, next, 406, "Missing req.params object");
 
         // Verify required elements and set parameters, if any -----------------
 
         if(req.params === undefined || typeof req.params != "object"
             || req.params.cmds === undefined || !Array.isArray(req.params.cmds))
-            return this._fling(res, next, 406, "Malformed xpapi object");
+            return this.fling(res, next, 406, "Malformed xpapi object");
 
 
         var xreq = req.params;
@@ -177,33 +182,33 @@ class xpapi {
             // Make sure the element has a cmd member --------------------------
 
             if(xreq.cmds[c].cmd === undefined)
-                return this._fling(res, next, 406, "Missing cmd array");
+                return this.fling(res, next, 406, "Missing cmd array");
 
             var cmd = xreq.cmds[c];
 
             // Make sure the cmd exists ----------------------------------------
 
-            if(this._handlers[cmd.cmd] === undefined) {
-                return this._fling(res, next, 406, "Undefined cmd");
+            if(this.handlers[cmd.cmd] === undefined) {
+                return this.fling(res, next, 406, "Undefined cmd");
             }
 
-            var def = this._handlers[cmd.cmd];
+            var def = this.handlers[cmd.cmd];
 
             // Check for presence of args if required --------------------------
 
             if(cmd.args === undefined && def.args !== null)
-                return this._fling(res, next, 406, "Missing args");
+                return this.fling(res, next, 406, "Missing args");
 
             // Now validate the args, if any -----------------------------------
 
             for(var arg in def.args) {
                 if(def.args[arg] === undefined)
-                    return this._fling(res, next, 406, "Unrecognized arg");
+                    return this.fling(res, next, 406, "Unrecognized arg");
                 if(def.args[arg].required && cmd.args[arg] === undefined)
-                    return this._fling(res, next, 406, "Missing required cmd arg");
-                var failed = this._validateCommandArgs(cmd, def);
+                    return this.fling(res, next, 406, "Missing required cmd arg");
+                var failed = this.validateCommandArgs(cmd, def);
                 if(failed) {
-                    return this._fling(res, next, 406, "Invalid arg: " + def.args[arg].errmsg);
+                    return this.fling(res, next, 406, "Invalid arg: " + def.args[arg].errmsg);
                 }
             }
 
@@ -221,14 +226,14 @@ class xpapi {
 
         for(var c = 0; c < xreq.cmds.length; c++) {
             var cmd = xreq.cmds[c];
-            var def = this._handlers[cmd.cmd];
+            var def = this.handlers[cmd.cmd];
 
             if(xreq.params && xreq.params.benchmark) {
                 var startFunc = new Date();
             }
 
-            if(this._config.dependencies && this._config.dependencies[cmd.cmd]) {
-                var result = def.func(req, xreq.cmds[c].args, this._config.dependencies[cmd.cmd]);
+            if(this.config.dependencies && this.config.dependencies[cmd.cmd]) {
+                var result = def.func(req, xreq.cmds[c].args, this.config.dependencies[cmd.cmd]);
             } else {
                 var result = def.func(req, xreq.cmds[c].args);
             }
@@ -266,12 +271,12 @@ class xpapi {
     // Command argument validation loop.
     //--------------------------------------------------------------------------
 
-    _validateCommandArgs(cmd, def) {
+    /* FUNC */ validateCommandArgs(cmd, def) {
         for(var arg in cmd.args) {
             if(def.args[arg].valid === undefined || def.args[arg].valid === null)
                 return false;
             try {
-                cmd.args[arg] = this._validate(cmd.args[arg], def.args[arg].valid);
+                cmd.args[arg] = this.validate(cmd.args[arg], def.args[arg].valid);
             } catch(e) {
                 return true;
             }
@@ -283,7 +288,7 @@ class xpapi {
     // Generic error flinger.
     //--------------------------------------------------------------------------
 
-    _fling(res, next, num, msg) {
+    /* FUNC */ fling(res, next, num, msg) {
         res.statusCode = num;
         res.end(msg);
         return next();
@@ -293,25 +298,25 @@ class xpapi {
     // Initializes the handlers.
     //--------------------------------------------------------------------------
 
-    _initHandlers() {
-        if(this._handlers.length == 0)
+    /* FUNC */ initHandlers() {
+        if(this.handlers.length == 0)
             this.error("fatal", "No handlers were exported by handler files.", "xpapi._initHandlers");
 
-        for(var i = 0; i < this._handlers.length; i++) {
-            this._initHandler(this._handlers[i]);
+        for(var i = 0; i < this.handlers.length; i++) {
+            this.initHandler(this.handlers[i]);
         }
     }
 
     //--------------------------------------------------------------------------
-    // Initializes a handler. Broken out from _initHandlers, plural, to reuse
+    // Initializes a handler. Broken out from initHandlers, plural, to reuse
     // with autoreload feature.
     //--------------------------------------------------------------------------
 
-    _initHandler(handler, force = false) {
+    /* FUNC */ initHandler(handler, force = false) {
             var h = handler;
             if(h.name === undefined || !this.genval.isNonEmptyString(h.name))
                 this.error("fatal", "Missing or invalid name in handler.", "xpapi._initHandlers");
-            if(this._handlers[h.name] !== undefined && !force)
+            if(this.handlers[h.name] !== undefined && !force)
                 this.error("fatal", "Duplicate name \"" + h.name + "\" in handler.", "xpapi._initHandlers");
             if(h.args === undefined && h.args !== null)
                 this.error("fatal", "Missing args in handler\"" + h.name + "\".", "xpapi._initHandlers");
@@ -331,7 +336,7 @@ class xpapi {
             h.init = true;
 
             if(h.args !== null)
-                this._validateHandlerArgs(h.name, h.args);
+                this.validateHandlerArgs(h.name, h.args);
     }
 
     //--------------------------------------------------------------------------
@@ -339,7 +344,7 @@ class xpapi {
     // program if an error is found.
     //--------------------------------------------------------------------------
 
-    _validateHandlerArgs(handlerName, args) {
+    /* FUNC */ validateHandlerArgs(handlerName, args) {
 
         for(var name in args) {
             var arg = args[name];
@@ -362,41 +367,97 @@ class xpapi {
 
     }
 
+
+    //--------------------------------------------------------------------------
+    // Loads the handlers. If autoload is enabled, it loads all of the files in
+    // the handler directory into this.config.handlerFiles. Otherwise, it
+    // loads whichever files were explicitly placed in handlerFiles at init.
+    //--------------------------------------------------------------------------
+
+    /* FUNC */ loadHandlers() {
+
+        if(this.config.autoload) {
+
+            try {
+                var items = this.fs.readdirSync(this.config.handlerDir, { withFileTypes: true });
+                this.error("debug", "Found " + items.length + " items in " + this.config.handlerDir + this.sep, "xpapi._loadHandlers");
+
+                for(var i = 0; i < items.length; i++) {
+                    if(items[i].isFile()) {
+                        this.loadHandler(this.config.handlerDir + this.sep + items[i].name);
+                    }
+                }
+
+            } catch(e) {console.log(e);
+                this.error("fatal", "Unable to open handler directory \""
+                    + this.fs.realpathSync(this.config.handlerDir) + "\".", "xpapi._loadHandlers");
+            }
+
+        } else {
+
+            this.config.handlerFiles = this.uniq(this.config.handlerFiles);
+
+            for(var i = 0; i < this.config.handlerFiles.length; i++) {
+                try {
+                    this.loadHandler(this.config.handlerFiles[i]);
+                } catch(e) {
+                    this.error("fatal", "Unable to require \"" + this.config.handlerFiles[i] + "\".",
+                        "xpapi._loadHandlers");
+                }
+            }
+        }
+    }
+
+
     //--------------------------------------------------------------------------
     // (Re)loads a changed handler file.
     //--------------------------------------------------------------------------
 
-    _loadChangedHandler(file) {
-        this._loadHandler(file.fullPath);
-        for(var k in this._handlers) {
-            if(!this._handlers[k].init) {
-                this._initHandler(this._handlers[k], true);
+    /* FUNC */ loadChangedHandler(file) {
+        this.loadHandler(file.fullPath);
+        for(var k in this.handlers) {
+            if(!this.handlers[k].init) {
+                this.initHandler(this.handlers[k], true);
                 this.error("info", "Reloaded handler file \"" + file + "\" after change.", "xpapi._loadChangedHandler");
             }
         }
     }
 
     //--------------------------------------------------------------------------
+    // Given an absolute path to a handler file, strips off the filename and
+    // everything up to and including the handler directory, yielding a path
+    // relative to handlerDir.
+    //--------------------------------------------------------------------------
+
+    /* FUNC */ getSubPath(path) {
+        var remove = this.config.handlerDir.split(this.sep).length;
+        var path = path.split(this.sep);
+        return path.slice(remove - 1, path.length - 1).join(this.sep);
+    }
+
+    //--------------------------------------------------------------------------
     // Loads a handler file.
     //--------------------------------------------------------------------------
 
-    _loadHandler(filename) {
+    /* FUNC */ loadHandler(filename) {
         try {
             delete require.cache[filename];
             var handlers = require(filename);
             this.error("debug", "Loaded \"" + filename + "\".", "xpapi._loadHandler");
+            var subPath = this.getSubPath(filename);
             if(!Array.isArray(handlers)) {
                 handlers = [handlers];
             }
 
             for(var h = 0; h < handlers.length; h++) {
-                if(this._handlers[handlers[h].name] === undefined) {
+                handlers[h].subPath = subPath;
+                if(this.handlers[handlers[h].name] === undefined) {
                     this.error("debug", "Loaded handler " + handlers[h].name + " from " + filename + ".", "xpapi._loadHandler");
                 } else {
                     this.error("debug", "Reloaded handler " + handlers[h].name + " from " + filename + ".", "xpapi._loadHandler");
                 }
                 handlers[h].init = false;
-                this._handlers[handlers[h].name] = handlers[h];
+                this.handlers[handlers[h].name] = handlers[h];
             }
 
         } catch(e) { console.log(e);
@@ -405,56 +466,18 @@ class xpapi {
 
     }
 
-    //--------------------------------------------------------------------------
-    // Loads the handlers. If autoload is enabled, it loads all of the files in
-    // the handler directory into this._config.handlerFiles. Otherwise, it
-    // loads whichever files were explicitly placed in handlerFiles at init.
-    //--------------------------------------------------------------------------
-
-    _loadHandlers() {
-
-        if(this._config.autoload) {
-            try {
-                var items = this._fs.readdirSync(this._config.handlerDir, { withFileTypes: true });
-                this.error("debug", "Found " + items.length + " items in " + this._config.handlerDir + ".", "xpapi._loadHandlers");
-
-                for(var i = 0; i < items.length; i++) {
-                    if(items[i].isFile()) {
-                        this._loadHandler(this._config.handlerDir + "/" + items[i].name);
-                    }
-                }
-
-            } catch(e) {console.log(e);
-                this.error("fatal", "Unable to open handler directory \""
-                    + this._fs.realpathSync(this._config.handlerDir) + "\".", "xpapi._loadHandlers");
-            }
-
-        } else {
-
-            this._config.handlerFiles = this._uniq(this._config.handlerFiles);
-
-            for(var i = 0; i < this._config.handlerFiles.length; i++) {
-                try {
-                    this._loadHandler(this._config.handlerFiles[i]);
-                } catch(e) {
-                    this.error("fatal", "Unable to require \"" + this._config.handlerFiles[i] + "\".",
-                        "xpapi._loadHandlers");
-                }
-            }
-        }
-    }
 
     //--------------------------------------------------------------------------
     // Utility function to return a copy of an array sorted and with duplicates
     // removed.
     //--------------------------------------------------------------------------
 
-    _uniq(a) {
+    /* FUNC */ uniq(a) {
         if(a.length) {
             var obj = { };
             for(var i = 0; i < a.length; i++)
-                obj[this._config.handlerFiles[i]] = true;
-            this._config.handlerFiles = [ ];
+                obj[this.config.handlerFiles[i]] = true;
+            this.config.handlerFiles = [ ];
             for(var k in obj)
                 a.push(k);
         }
@@ -467,48 +490,48 @@ class xpapi {
     // files were loaded into pluginFiles via options passed to the constructor.
     //--------------------------------------------------------------------------
 
-    _loadPlugins() {
+    /* FUNC */ loadPlugins() {
 
-        if(this._config.autoload) {
+        if(this.config.autoload) {
             try {
-                var items = this._fs.readdirSync(this._config.pluginDir, { withFileTypes: true });
+                var items = this.fs.readdirSync(this.config.pluginDir, { withFileTypes: true });
                 this.error("debug", "Found " + items.length + " items in "
-                    + this._config.pluginDir + ".", "xpapi.constructor");
+                    + this.config.pluginDir + ".", "xpapi.constructor");
 
                 for(var i = 0; i < items.length; i++) {
                     if(items[i].isFile()) {
-                        this._config.pluginFiles.push(this._config.pluginDir + "/" + items[i].name);
+                        this.config.pluginFiles.push(this.config.pluginDir + this.sep + items[i].name);
                         this.error("debug", "Found plugin file \""
-                            + this._config.pluginFiles[this._config.pluginFiles.length - 1]
+                            + this.config.pluginFiles[this.config.pluginFiles.length - 1]
                             + "\".", "xpapi.constructor");
                     }
                 }
-                this.error("debug", "Found " + this._config.pluginFiles.length
+                this.error("debug", "Found " + this.config.pluginFiles.length
                     + " plugin files.", "xpapi.constructor");
 
             } catch(e) {
                 this.error("fatal", "Unable to open plugin directory \""
-                    + this._config.pluginDir + "\".", "xpapi.constructor");
+                    + this.config.pluginDir + "\".", "xpapi.constructor");
             }
         }
 
-        for(var i = 0; i < this._config.pluginFiles.length; i++) {
+        for(var i = 0; i < this.config.pluginFiles.length; i++) {
 
             try {
 
-                var plugins = require(this._config.pluginFiles[i]);
-                this.error("debug", "Loaded \"" + this._config.pluginFiles[i] + "\".",
+                var plugins = require(this.config.pluginFiles[i]);
+                this.error("debug", "Loaded \"" + this.config.pluginFiles[i] + "\".",
                     "xpapi.constructor");
 
                 if(plugins.pre)
-                    this._server.pre(plugins.pre);
+                    this.server.pre(plugins.pre);
 
                 if(plugins.use)
-                    this._server.use(plugins.use);
+                    this.server.use(plugins.use);
 
             } catch(e) {
 
-                this.error("fatal", "Unable to require \"" + this._config.pluginFiles[i] + "\".",
+                this.error("fatal", "Unable to require \"" + this.config.pluginFiles[i] + "\".",
                     "xpapi.constructor");
             }
 
@@ -524,7 +547,7 @@ class xpapi {
     // in the order specified.
     //--------------------------------------------------------------------------
 
-    _validate(val, tests) {
+    /* FUNC */ validate(val, tests) {
 
         for(var i = 0; i < tests.length; i++) {
 
@@ -729,32 +752,37 @@ class xpapi {
 
     }
 
+
     //--------------------------------------------------------------------------
     // Outputs the runtime header to console. This will become progressively
     // more ostentatious and ridiculous as time goes by.
     //--------------------------------------------------------------------------
 
-    outputHeader() {
+    /* FUNC */ outputHeader(content, width = 76, lineChar = "=") {
+
+        var line    = lineChar.repeat(width);
+        var title   = " ".repeat(Math.round(((width - 2) / 2) - (content.length / 2)))
+            + content;
+        title += " ".repeat(width - 4 - title.length);
 
         console.log(
-            "\n" + this._ac.blue("===========================================================================") + "\n"
-            + this._ac.yellow.bold("                      xpapi v" + this._version + " -- Sane Web APIs") + "\n"
-            + this._ac.blue("===========================================================================") + "\n"
+            "\n" + this.ac.blue(line) + "\n"
+            + this.ac.blue(lineChar + " ") + this.ac.yellow.bold(title) + this.ac.blue(" " + lineChar) + "\n"
+            + this.ac.blue(line) + "\n"
         );
 
     }
-
-
 
     //--------------------------------------------------------------------------
     // If a logger has been defined, log messages will be passed to it here;
     // otherwise it defaults to console.log().
     //--------------------------------------------------------------------------
 
-    log(msg) {
-        if(this._config.logger)
-            this._config.logger(msg);
+    /* FUNC */ log(msg) {
+        if(this.config.logger)
+            this.config.logger(msg);
     }
+
 
 
     //--------------------------------------------------------------------------
@@ -762,54 +790,50 @@ class xpapi {
     // level, and if the error is fatal, terminates the process.
     //--------------------------------------------------------------------------
 
-    error(level, message, location = "xpapi", obj = null) {
+    /* FUNC */ error(level, message, location = null) {
 
-        switch(level) {
-            case "fatal":
-                console.log(this._ac.bgRed.yellowBright("[" + location + "]") + this._ac.redBright(" FATAL ERROR: ") + this._ac.yellowBright(message ));
-                this.log("[" + location + "] FATAL ERROR: " + message  + "\n");
-                break;
-            case "warn":
-                if(this._config.verbosity >= 1) {
-                    console.log(this._ac.bgYellow.whiteBright("[" + location + "]") + this._ac.yellowBright(" WARNING: ") + message );
-                    this.log("[" + location + "] WARNING: " + message  + "\n");
-                }
-                break;
-            case "info":
-                if(this._config.verbosity >= 2) {
-                    console.log(this._ac.bgGreen.whiteBright("[" + location + "]") + this._ac.greenBright(" INFO: ") + message );
-                    this.log("[" + location + "] INFO: " + message  + "\n");
-                }
-                break;
-            case "debug":
-                if(this._config.verbosity >= 3 || this.settings.debug) {
-                    console.log("[" + location + "] DEBUG: " + message );
-                    this.log("[" + location + "] DEBUG: " + message  + "\n");
-                }
-                break;
+        if(location === null)
+            location = this.config.appName.toUpperCase();
+
+        if(this.config.verbosity) {
+            switch(level) {
+                case "fatal":
+                    console.log(this.ac.bgRed.yellowBright("[" + location + "]") + this.ac.redBright(" FATAL ERROR: ") + this.ac.yellowBright(message));
+                    break;
+                case "warn":
+                    if(this.config.verbosity >= 1)
+                        console.log(this.ac.bgYellow.whiteBright("[" + location + "]") + this.ac.yellowBright(" WARNING: ") + message);
+                    break;
+                case "info":
+                    if(this.config.verbosity >= 2)
+                        console.log(this.ac.bgGreen.whiteBright("[" + location + "]") + this.ac.greenBright(" INFO: ") + message);
+                    break;
+                case "debug":
+                    if(this.config.verbosity >= 3)
+                        console.log("[" + location + "] DEBUG: " + message);
+                    break;
+            }
         }
 
-
-        if(level == "fatal")
-            this._process.exit(1);
+        if(level == "fatal" && this.config.verbosity > 0)
+            process.exit(1);
     }
-
 
     //--------------------------------------------------------------------------
     // Documentation generator.
     //--------------------------------------------------------------------------
 
-    _documentation(req, res, next) {
+    /* FUNC */ documentation(req, res, next) {
         var docs = [];
 
         docs.push(
             "<html lang='en'>\n"
             + "<head>\n"
             + "<meta charset='utf-8'>\n"
-            + "<title>" + this._config.name + " Documentation</title>"
+            + "<title>" + this.config.name + " Documentation</title>"
         );
-        if(this._config.cssUrl) {
-            docs.push("<link rel='stylesheet' href='" + this._config.cssUrl + "'>");
+        if(this.config.cssUrl) {
+            docs.push("<link rel='stylesheet' href='" + this.config.cssUrl + "'>");
         } else {
             docs.push(
                 "<style type='text/css'>\n"
@@ -831,13 +855,13 @@ class xpapi {
         docs.push(
             "</head>\n"
             + "<body>\n"
-            + "<h1>" + this._config.name + " API Documentation</h1>\n"
+            + "<h1>" + this.config.name + " API Documentation</h1>\n"
             + "<h2>Table of Contents</h2>\n"
             + "<ul>"
         );
 
         var methodNames = [ ];
-        for(var name in this._handlers)
+        for(var name in this.handlers)
             methodNames.push(name)
         methodNames.sort();
 
@@ -850,7 +874,7 @@ class xpapi {
         );
 
         for(var m = 0; m < methodNames.length; m++) {
-            var method = this._handlers[this._handlers[methodNames[m]]];
+            var method = this.handlers[this.handlers[methodNames[m]]];
 
             docs.push("<a name='" + method.name + "'></a>");
             docs.push("<h3 class='method-name'>" + method.name + "</h3>");
@@ -907,7 +931,7 @@ class xpapi {
 // { size: 603, path: "/path/to/file", name: "foo.txt", type: "text/plain" }
 //--------------------------------------------------------------------------
 
-function _uploadHandler(options) {
+/* FUNC */ function uploadHandler(options) {
 
     function handler(req, res, next) {
 

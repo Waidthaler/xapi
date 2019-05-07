@@ -1,7 +1,5 @@
 // test handler
 
-var v = require("../xapi.js");  // for static validation methods
-
 var yoMama = {
     name: "yoMama",
     args: {

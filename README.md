@@ -16,8 +16,9 @@ var xpapi = new (require("xpapi"))(options);
 
 ...where `options` is an object containing the runtime options:
 
-* **`apiPath`:** Specifies the path where xpapi will accept requests, e.g. `"/api"`. There is only one of these; xpapi doesn't play silly games with URLs.
+* **`apiPath`:** Specifies the base path where xpapi will accept requests, e.g. `"/api"`. There is only one of these; xpapi doesn't play silly games with URLs.
 * **`apiPort`:** Specifies the port to listen to, e.g., 80, 443, 8080, etc.
+* **`apiMulti`:** Enables serving multiple APIs with different paths.
 * **`autoload`:** If true, handlers will be automatically loaded from `handlerDir`.
 * **`autoreload`:** If true, `handlerDir` will be monitored for changes and modules automatically reloaded.
 * **`corsOrigins`:** Optional. Defines legal CORS origins.
@@ -264,7 +265,7 @@ return {
     errcode: "NOTMOM",
     cookie:  "SessionId=F4D9690DE593841BD81ABD2583A237F0; Path=/api; SameSite=Strict"
 };
-
+```
 
 ### Plugins
 
@@ -287,18 +288,72 @@ module.exports = {
 };
 ```
 
-### API Versioning
+### API Versioning and Multiple APIs in the Same Xpapi Process
 
-For the sake of simplicity and flexibility, Xpapi does not provide explicit 
-handling of API versions. However, as the `request` object is the first argument 
-passed to every handler function, it is possible for clients to specify the 
-desired version via a custom HTTP header, e.g., `X-Xpapi-Version`, and have 
-handlers act accordingly, either with internal logic or by dispatching the 
-requests to suitable private functions based on version.
+The original intention (pre-1.1.0) was to have a single API path. In practice, 
+it turns out to be a lot easier to have multiple paths to support different
+versions and entirely different APIs within a single Xpapi process. In keeping
+with the general practice of not breaking backward compatibility, this is now
+possible with the new `apiMulti` configuration option.
+
+The default value for `apiMulti` is boolean `false`, in which case all handlers 
+are served from the URL specified by `apiPath`. If `apiMulti` is `true`, then 
+only handlers present in the top-level `handlerDir` will be served at `apiPath`, 
+and handlers in subdirectories will be served at URLs corresponding to `apiPath` +
+`/subdirectoryName`.
+
+For example, let's assume your `apiPath` is `/api` and your `handlerDir` is 
+named `handlers`, and its layout looks something like this:
+
+```
+/handlers
+    foo.js            ... The handlers in foo.js and bar.js will be served
+    bar.js                from /api
+    /jobs_v1
+        baz.js        ... The handlers in baz.js will be served from /api/jobs_v1
+    /jobs_v2
+        quux.js       ... The handlers in quux.js will be served from /api/jobs_v2
+```
+
+You don't have to use the `apiMulti` feature, of course. A slightly more complex 
+alternative is to specify the desired version or API subset using custom headers 
+in the request object and let the handlers sort it out internally. The choice is 
+yours. Inside the (very large) company that sponsors the development of Xpapi, 
+we found it easier to split things up this way to make version control and 
+deployment simpler. A smaller organization or project might have no need for 
+this feature.
+
+
+### Miscellaneous
+
+#### Naming
+
+Xpapi was originally named Xapi, but that name was already in use by another 
+project when it came time to publish. Neither actually stands for anything. Feel 
+free to have pointless debates over whether it should be pronounced 
+ex-pee-ay-pee-eye or ex-pappy. Bonus points for complaining that the choices 
+should be rendered in IPA phonetic characters for non-English speakers. Odds are 
+good it will be completely renamed by the time it hits 2.0.0.
+
 
 ### TODO
 
+* While we're still not going to play the aforementioned silly games with URLs,
+  it does look like it would be useful to hang different handlers from different
+  top-level URLs both for versioning and for making it easier to serve several
+  APIs from the same Xpapi installation.
+* More and better examples.
+* Improved documentation.
 * Provide a hook for custom validators.
 * Client-side wrapper generation.
 * Logging hook.
+
+
+### Changelog
+
+#### 1.1.0 (in progress)
+
+* Removed leading underscores from "private" methods. 
+* Ported over a more refined version of the `error` and `outputHeader` methods from another project.
+* Documented `apiMulti` configuration option.
 
