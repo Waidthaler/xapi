@@ -426,6 +426,10 @@ hits 2.0.0.
 
 ### Changelog
 
+#### 1.2.1
+
+* Minor changes to validation routines, preparation for refactoring validations.
+
 #### 1.2.0
 
 * Added handler plugins, partly to support more robust dependency injection.
