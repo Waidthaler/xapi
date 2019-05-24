@@ -25,7 +25,7 @@ class xpapi {
 
         this.sep       = require("path").sep;
 
-        this.version   = "1.2.0";
+        this.version   = "1.2.1";
 
         this.server    = null;
         this.handlers  = { };
