@@ -231,6 +231,7 @@ trimming whitespace.
 * `[isInt]` - Alias for `isInteger`.
 * `[isNonEmptyString]` - Succeeds if the value is a non-empty string.
 * `[isNull]` - Succeeds if the value is `null`.
+* `[isNullOrNonEmptyString]` - Succeeds if the value is `null` or a non-empty string.
 * `[isString]` - Succeeds if the value is a string.
 * `[isWithin]` - Succeeds if `min <= val <= max`. Contrast with `isBetween`.
 

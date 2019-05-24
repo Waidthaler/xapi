@@ -712,6 +712,16 @@ class xpapi {
                     break;
 
                 //--------------------------------------------------------------
+
+                case "isNullOrNonEmptyString":
+                    if(val !== null && !this.genval.isNonEmptyString(val))
+                    if(!this.genval.isNonEmptyString(val)) {
+                        this.error("info", "Failed isNullOrNonEmptyString test.", "xapi._validate");
+                        throw new Error("_validate failed.");
+                    }
+                    break;
+
+                //--------------------------------------------------------------
                 // ["isString", ?min, ?max]
 
                 case "isString":
